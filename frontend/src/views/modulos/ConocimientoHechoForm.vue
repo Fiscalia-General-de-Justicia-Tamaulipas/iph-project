@@ -94,7 +94,7 @@
       </div>
 
       <div class="actions-row">
-        <button type="button" class="secondary-btn">Cancelar</button>
+        <button type="button" class="secondary-btn" @click="$emit('cancelar')">Cancelar</button>
         <button type="submit" :disabled="guardando" class="primary-btn">
           {{ guardando ? "Guardando..." : "Guardar" }}
         </button>
@@ -110,7 +110,7 @@ import api from "../../store/api";
 
 const auth = useAuthStore();
 const props = defineProps({ iphId: { type: [String, Number], required: true } });
-const emit = defineEmits(["guardado"]);
+const emit = defineEmits(["guardado", "cancelar"]);
 
 const form = ref({
   id_institucion_informante: "",

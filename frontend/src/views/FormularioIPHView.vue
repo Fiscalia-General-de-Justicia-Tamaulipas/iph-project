@@ -90,6 +90,7 @@
           :iph-id="iphId"
           :tipo="moduloActivo"
           @guardado="recargarEstado"
+          @cancelar="volverAlArbol"
         />
         <div v-else class="bg-white rounded-lg shadow p-6 text-center text-gray-400">
           Este módulo está en construcción.

@@ -13,7 +13,8 @@
         ></textarea>
       </div>
 
-      <div class="flex justify-end">
+      <div class="flex justify-end gap-3">
+        <button type="button" class="border border-[#d0d0d0] bg-white px-4 py-2 rounded-md text-[#575756] hover:bg-[#f7f7f7]" @click="$emit('cancelar')">Cancelar</button>
         <button
           type="submit"
           :disabled="guardando"
@@ -31,7 +32,7 @@ import { ref, onMounted } from "vue";
 import api from "../../store/api";
 
 const props = defineProps({ iphId: { type: [String, Number], required: true } });
-const emit = defineEmits(["guardado"]);
+const emit = defineEmits(["guardado", "cancelar"]);
 
 const guardando = ref(false);
 const form = ref({

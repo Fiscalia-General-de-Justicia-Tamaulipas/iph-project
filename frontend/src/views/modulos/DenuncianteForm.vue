@@ -191,13 +191,16 @@
         <textarea v-model="form.relato" rows="3" class="border rounded-md px-3 py-2 w-full"></textarea>
       </div>
 
-      <button
-        type="submit"
-        :disabled="guardando"
-        class="md:col-span-2 bg-institucional-verde text-white px-4 py-2 rounded-md hover:opacity-90 disabled:opacity-50"
-      >
-        {{ guardando ? "Agregando..." : `Agregar ${etiqueta}` }}
-      </button>
+      <div class="md:col-span-2 flex justify-end gap-3">
+        <button type="button" class="border border-[#d0d0d0] bg-white px-4 py-2 rounded-md text-[#575756] hover:bg-[#f7f7f7]" @click="$emit('cancelar')">Cancelar</button>
+        <button
+          type="submit"
+          :disabled="guardando"
+          class="bg-institucional-verde text-white px-4 py-2 rounded-md hover:opacity-90 disabled:opacity-50"
+        >
+          {{ guardando ? "Agregando..." : `Agregar ${etiqueta}` }}
+        </button>
+      </div>
     </form>
   </div>
 </template>
@@ -210,7 +213,7 @@ const props = defineProps({
   iphId: { type: [String, Number], required: true },
   tipo: { type: String, default: "denunciante" },
 });
-const emit = defineEmits(["guardado"]);
+const emit = defineEmits(["guardado", "cancelar"]);
 
 const tipoConfig = {
   denunciante: { titulo: "Denunciante(s)", etiqueta: "denunciante", plural: "denunciantes" },

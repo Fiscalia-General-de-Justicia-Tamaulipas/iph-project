@@ -314,7 +314,8 @@ async function crearIPH() {
     const folio = data.folio_interno || data.IPH || "";
 
     await router.push({
-      name: "registro-iph",
+      name: "formulario-iph",
+      params: { id: idIph },
       query: {
         ID_IPH: idIph ?? "",
         ID_CARPETA: data.id_carpeta || 0,

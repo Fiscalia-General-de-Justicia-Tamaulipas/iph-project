@@ -10,6 +10,8 @@ export default {
           oscuro: "#575756",
           fondo: "#f3f3f3",
           texto: "#1f1f1e",
+          verde: "#2d6d37",
+          gris: "#878787",
         },
       },
       boxShadow: {
