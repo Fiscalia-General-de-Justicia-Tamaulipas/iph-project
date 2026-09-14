@@ -1,65 +1,72 @@
 <template>
-  <div class="bg-white rounded-lg shadow p-6 max-w-4xl">
-    <h2 class="font-semibold text-lg mb-4 text-gray-800">Conocimiento de Hecho</h2>
+  <div class="form-shell form-card max-w-5xl">
+    <div class="form-header">
+      <div>
+        <p class="eyebrow">Módulo inicial</p>
+        <h2>Conocimiento de Hecho</h2>
+      </div>
+      <div class="status-pill">
+        <span class="status-dot"></span>
+        Activo
+      </div>
+    </div>
 
-    <form @submit.prevent="guardar" class="space-y-6">
-      <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div class="xl:col-span-2">
-          <label class="block text-sm font-medium text-gray-700 mb-1">INSTITUCIÓN / UNIDAD QUE INFORMA</label>
-          <select v-model="form.id_institucion_informante" class="w-full border rounded-md px-3 py-2">
-            <option value="">--SELECCIONE--</option>
-            <option value="1">Policía Ministerial</option>
-            <option value="2">Fiscalía</option>
-            <option value="3">Agencia Ministerial</option>
-            <option value="4">Otra institución</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">FECHA DEL CONOCIMIENTO</label>
-          <input v-model="form.fecha_conocimiento" type="date" class="w-full border rounded-md px-3 py-2" />
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">HORA DEL CONOCIMIENTO</label>
-          <input v-model="form.hora_conocimiento" type="time" class="w-full border rounded-md px-3 py-2" />
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">CARGO O AUTORIDAD</label>
-          <select v-model="form.id_cargo" class="w-full border rounded-md px-3 py-2">
-            <option value="">--SELECCIONE--</option>
-            <option value="8">Policía Investigador</option>
-            <option value="16">Comandante</option>
-            <option value="20">Agente de policía</option>
-            <option value="21">Fiscal</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">ESTADO</label>
-          <select v-model="form.id_estado" class="w-full border rounded-md px-3 py-2">
-            <option value="">--SELECCIONE--</option>
-            <option value="28">Tamaulipas</option>
-            <option value="1">Aguascalientes</option>
-            <option value="29">Veracruz</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">MUNICIPIO</label>
-          <select v-model="form.id_municipio" class="w-full border rounded-md px-3 py-2">
-            <option value="">--SELECCIONE--</option>
-            <option value="41">Victoria</option>
-            <option value="42">Ciudad Mante</option>
-            <option value="43">Matamoros</option>
-          </select>
-        </div>
+    <form @submit.prevent="guardar" class="form-grid">
+      <div class="field field-wide">
+        <label>INSTITUCIÓN / UNIDAD QUE INFORMA</label>
+        <select v-model="form.id_institucion_informante">
+          <option value="">--SELECCIONE--</option>
+          <option value="1">Policía Ministerial</option>
+          <option value="2">Fiscalía</option>
+          <option value="3">Agencia Ministerial</option>
+          <option value="4">Otra institución</option>
+        </select>
       </div>
 
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">¿Cómo se enteró del hecho?</label>
-        <select v-model="form.como_se_entero" class="w-full border rounded-md px-3 py-2">
+      <div class="field">
+        <label>FECHA DEL CONOCIMIENTO</label>
+        <input v-model="form.fecha_conocimiento" type="date" />
+      </div>
+
+      <div class="field">
+        <label>HORA DEL CONOCIMIENTO</label>
+        <input v-model="form.hora_conocimiento" type="time" />
+      </div>
+
+      <div class="field">
+        <label>CARGO O AUTORIDAD</label>
+        <select v-model="form.id_cargo">
+          <option value="">--SELECCIONE--</option>
+          <option value="8">Policía Investigador</option>
+          <option value="16">Comandante</option>
+          <option value="20">Agente de policía</option>
+          <option value="21">Fiscal</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>ESTADO</label>
+        <select v-model="form.id_estado">
+          <option value="">--SELECCIONE--</option>
+          <option value="28">Tamaulipas</option>
+          <option value="1">Aguascalientes</option>
+          <option value="29">Veracruz</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>MUNICIPIO</label>
+        <select v-model="form.id_municipio">
+          <option value="">--SELECCIONE--</option>
+          <option value="41">Victoria</option>
+          <option value="42">Ciudad Mante</option>
+          <option value="43">Matamoros</option>
+        </select>
+      </div>
+
+      <div class="field field-wide">
+        <label>¿CÓMO SE ENTERÓ DEL HECHO?</label>
+        <select v-model="form.como_se_entero">
           <option value="">Selecciona una opción</option>
           <option value="denuncia">Denuncia</option>
           <option value="flagrancia">Flagrancia</option>
@@ -71,29 +78,27 @@
         </select>
       </div>
 
-      <div v-if="form.como_se_entero === 'llamada_emergencia'">
-        <label class="block text-sm font-medium text-gray-700 mb-1">No. 911</label>
-        <input v-model="form.numero_911" class="w-full border rounded-md px-3 py-2" />
+      <div v-if="form.como_se_entero === 'llamada_emergencia'" class="field field-wide">
+        <label>NO. 911</label>
+        <input v-model="form.numero_911" />
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de arribo</label>
-          <input v-model="form.fecha_arribo" type="date" class="w-full border rounded-md px-3 py-2" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Hora de arribo</label>
-          <input v-model="form.hora_arribo" type="time" class="w-full border rounded-md px-3 py-2" />
-        </div>
+      <div class="field">
+        <label>FECHA DE ARRIBO</label>
+        <input v-model="form.fecha_arribo" type="date" />
       </div>
 
-      <button
-        type="submit"
-        :disabled="guardando"
-        class="bg-institucional-verde text-white px-4 py-2 rounded-md hover:opacity-90 disabled:opacity-50"
-      >
-        {{ guardando ? "Guardando..." : "Guardar" }}
-      </button>
+      <div class="field">
+        <label>HORA DE ARRIBO</label>
+        <input v-model="form.hora_arribo" type="time" />
+      </div>
+
+      <div class="actions-row">
+        <button type="button" class="secondary-btn">Cancelar</button>
+        <button type="submit" :disabled="guardando" class="primary-btn">
+          {{ guardando ? "Guardando..." : "Guardar" }}
+        </button>
+      </div>
     </form>
   </div>
 </template>

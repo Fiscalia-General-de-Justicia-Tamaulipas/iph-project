@@ -1,72 +1,103 @@
 <template>
-  <div class="min-h-screen bg-gray-100">
-    <header class="bg-[#1f2d3d] text-white px-6 py-4">
-      <div class="max-w-6xl mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div class="space-y-1">
-          <p class="text-sm text-gray-300">{{ adscripcion }}</p>
-          <p class="font-bold text-lg uppercase">{{ nombreUsuario }}</p>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-gray-200">{{ puesto }}</span>
-          <button @click="$router.push({ name: 'panel' })" class="bg-[#d4af37] text-[#1f2d3d] px-3 py-1 rounded font-semibold hover:opacity-90">
-            Volver al panel
-          </button>
+  <div class="min-h-screen bg-[#efefef]">
+    <header class="bg-[#575756] text-white shadow-sm border-b border-[#434342]">
+      <div class="max-w-7xl mx-auto px-4 py-4 md:px-6">
+        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div class="flex items-center gap-4">
+            <img src="/logos/logo_fgjtam.png" alt="Logo FGJTAM" class="h-14 w-auto rounded-lg bg-white/90 p-2 shadow-sm" />
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.3em] text-[#dadada]">FGJ Tamaulipas</p>
+              <h1 class="text-xl font-black tracking-wide">Registro del IPH</h1>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <div class="text-right">
+              <p class="text-xs uppercase tracking-wide text-[#dadada]">{{ adscripcion || 'Unidad' }}</p>
+              <p class="text-sm font-semibold">{{ nombreUsuario }}</p>
+            </div>
+            <button @click="$router.push({ name: 'panel' })" class="rounded-xl bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10">
+              Volver al panel
+            </button>
+          </div>
         </div>
       </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-4 py-6">
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div class="mb-6">
-          <div class="h-20 rounded-lg bg-gradient-to-r from-[#1f2d3d] to-[#2e7d32] flex items-center justify-center text-white text-2xl font-bold tracking-wide">
-            IPH
-          </div>
-        </div>
-
-        <div class="mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <main class="max-w-7xl mx-auto px-4 py-6 md:px-6">
+      <section class="mb-6 rounded-2xl border border-[#d9d9d9] bg-white p-5 shadow-sm">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p class="text-sm text-gray-500">Fecha</p>
-            <p class="font-semibold text-gray-800">{{ fechaActual }}</p>
-          </div>
-          <button
-            v-if="!iniciado"
-            @click="iniciarNuc"
-            class="bg-[#2e7d32] text-white px-5 py-2 rounded-md font-semibold hover:opacity-90"
-          >
-            INICIAR
-          </button>
-        </div>
-
-        <div v-if="numeroNuc" class="mb-5">
-          <p class="text-sm font-bold text-[#1f2d3d] uppercase">Número único de carpeta</p>
-          <p class="text-2xl font-bold text-gray-900">{{ numeroNuc }}</p>
-        </div>
-
-        <div class="overflow-hidden rounded-md border border-gray-200">
-          <div class="bg-gray-100 px-4 py-3 border-b border-gray-200 font-bold text-[#1f2d3d] uppercase">
-            Árbol del IPH
+            <p class="text-xs uppercase tracking-[0.25em] text-[#878787]">Fecha</p>
+            <p class="mt-2 text-lg font-semibold text-[#1f1f1e]">{{ fechaActual }}</p>
           </div>
 
-          <ul class="divide-y divide-gray-200">
-            <li v-for="(nodo, index) in arbol" :key="nodo.label + index" class="px-4 py-3 bg-white">
-              <div class="font-semibold text-gray-800">{{ nodo.label }}</div>
-
-              <ul v-if="nodo.children && nodo.children.length" class="mt-2 ml-5 space-y-2">
-                <li v-for="(hijo, hijoIndex) in nodo.children" :key="hijo.label + hijoIndex" class="text-sm text-gray-700">
-                  <button
-                    v-if="hijo.link"
-                    @click="$router.push(hijo.link)"
-                    class="text-left hover:text-[#2e7d32] hover:underline"
-                  >
-                    {{ hijo.label }}
-                  </button>
-                  <span v-else>{{ hijo.label }}</span>
-                </li>
-              </ul>
-            </li>
-          </ul>
+          <div class="flex items-center gap-3">
+            <div class="rounded-xl bg-[#f5f5f5] px-4 py-3">
+              <p class="text-[10px] uppercase tracking-[0.2em] text-[#575756]">Folio</p>
+              <p class="text-lg font-black text-[#1f1f1e]">{{ numeroNuc || 'Sin folio' }}</p>
+            </div>
+            <button
+              v-if="!iniciado"
+              @click="iniciarNuc"
+              class="rounded-xl bg-[#575756] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#454544]"
+            >
+              INICIAR
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section class="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <aside class="rounded-2xl border border-[#d9d9d9] bg-white shadow-sm overflow-hidden">
+          <div class="bg-[#575756] px-4 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white">Árbol del IPH</div>
+
+          <div class="p-4">
+            <ul class="space-y-4">
+              <li v-for="grupo in arbol" :key="grupo.label" class="tree-node">
+                <div class="tree-branch font-black uppercase tracking-[0.18em] text-[#575756]">{{ grupo.label }}</div>
+                <ul class="mt-3 space-y-2 pl-3 border-l border-[#e6e6e6]">
+                  <li v-for="(hijo, index) in grupo.children" :key="hijo.label + index">
+                    <button
+                      v-if="hijo.link"
+                      @click="$router.push(hijo.link)"
+                      class="group flex w-full items-center justify-between rounded-xl border border-[#e0e0e0] bg-[#fafafa] px-3 py-2 text-left transition hover:border-[#878787] hover:bg-[#f2f2f2]"
+                    >
+                      <span class="text-sm font-medium text-[#2f2f2f]">{{ hijo.label }}</span>
+                      <span class="rounded-full bg-[#ececec] px-2 py-0.5 text-[9px] font-bold uppercase text-[#575756]">Abrir</span>
+                    </button>
+                    <div v-else class="rounded-xl border border-dashed border-[#d7d7d7] bg-[#f9f9f9] px-3 py-2 text-sm text-[#575756] opacity-80">
+                      {{ hijo.label }}
+                    </div>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </aside>
+
+        <section class="rounded-2xl border border-[#d9d9d9] bg-white p-5 shadow-sm">
+          <div class="mb-4 flex items-center justify-between border-b border-[#ececec] pb-3">
+            <h2 class="text-xl font-black text-[#575756]">Resumen operativo</h2>
+            <span class="rounded-full bg-[#eeeeee] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-[#575756]">IPH</span>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div class="rounded-xl bg-[#f7f7f7] p-4 border border-[#e6e6e6]">
+              <p class="text-[10px] uppercase tracking-[0.2em] text-[#878787]">Conocimiento</p>
+              <p class="mt-2 text-lg font-bold text-[#1f1f1e]">Hecho y noticia</p>
+            </div>
+            <div class="rounded-xl bg-[#f7f7f7] p-4 border border-[#e6e6e6]">
+              <p class="text-[10px] uppercase tracking-[0.2em] text-[#878787]">Investigación</p>
+              <p class="mt-2 text-lg font-bold text-[#1f1f1e]">Lugar, persona y vehículo</p>
+            </div>
+            <div class="rounded-xl bg-[#f7f7f7] p-4 border border-[#e6e6e6]">
+              <p class="text-[10px] uppercase tracking-[0.2em] text-[#878787]">Actuación</p>
+              <p class="mt-2 text-lg font-bold text-[#1f1f1e]">Narrativa y actuaciones</p>
+            </div>
+          </div>
+        </section>
+      </section>
     </main>
   </div>
 </template>
@@ -97,27 +128,39 @@ const fechaActual = computed(() => new Date().toLocaleDateString("es-MX", {
   year: "numeric",
 }));
 
-const arbol = [
+const currentIphId = computed(() => Number(route.query?.ID_IPH || route.params?.id || 1) || 1);
+
+const arbol = computed(() => [
   {
-    label: "IPH",
+    label: "Hechos iniciales",
     children: [
-      { label: "Conocimiento de hecho", link: { name: "formulario-iph", params: { id: 1 } } },
-      { label: "Acta de noticia del hecho" },
-      { label: "Acciones realizadas" },
-      { label: "Denunciante" },
-      { label: "Ofendido" },
-      { label: "Víctima" },
-      { label: "Policías" },
-      { label: "Imputado" },
-      { label: "Testigo" },
-      { label: "Inspección de lugar" },
-      { label: "Inspección de persona" },
-      { label: "Inspección de vehículos" },
-      { label: "Narración de la actuación del primer respondiente" },
-      { label: "Actuaciones" },
+      { label: "Conocimiento de hecho", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "conocimiento_hecho" } } },
+      { label: "Acta de noticia del hecho", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "acta_noticia" } } },
+      { label: "Acciones realizadas", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "acciones_realizadas" } } },
     ],
   },
-];
+  {
+    label: "Personas y autoridades",
+    children: [
+      { label: "Denunciante", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "denunciante" } } },
+      { label: "Ofendido", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "ofendido" } } },
+      { label: "Víctima", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "victima" } } },
+      { label: "Policías", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "policias" } } },
+      { label: "Imputado", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "imputado" } } },
+      { label: "Testigo", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "testigo" } } },
+    ],
+  },
+  {
+    label: "Inspección y narrativa",
+    children: [
+      { label: "Inspección de lugar", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "inspeccion_lugar" } } },
+      { label: "Inspección de persona", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "inspeccion_persona" } } },
+      { label: "Inspección de vehículos", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "inspeccion_vehiculos" } } },
+      { label: "Narración del primer respondiente", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "narracion_primer_respondiente" } } },
+      { label: "Actuaciones", link: { name: "formulario-iph", params: { id: currentIphId.value, modulo: "actuaciones" } } },
+    ],
+  },
+]);
 
 function iniciarNuc() {
   iniciado.value = true;

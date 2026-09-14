@@ -1,140 +1,195 @@
 <template>
-  <div class="min-h-screen bg-gray-100">
-    <header class="bg-[#1f2d3d] text-white px-6 py-4">
-      <div class="max-w-6xl mx-auto flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div class="space-y-1">
-          <p class="text-sm text-gray-300">{{ adscripcion }}</p>
-          <p class="font-bold text-lg uppercase">{{ nombreUsuario }}</p>
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-gray-200">{{ puesto }}</span>
-          <button @click="cerrarSesion" class="bg-[#d4af37] text-[#1f2d3d] px-3 py-1 rounded font-semibold hover:opacity-90">
-            Cerrar sesión
-          </button>
+  <div class="min-h-screen bg-[#efefef]">
+    <header class="bg-[#575756] text-white shadow-sm border-b border-[#434342]">
+      <div class="max-w-7xl mx-auto px-4 py-4 md:px-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div class="flex items-center gap-4">
+            <img src="/logos/logo_fgjtam.png" alt="Logo FGJTAM" class="h-14 w-auto rounded-lg bg-white/90 p-2 shadow-sm" />
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.3em] text-[#dadada]">FGJ Tamaulipas</p>
+              <h1 class="text-xl font-black tracking-wide">IPH - Informe Policial Homologado</h1>
+            </div>
+          </div>
+
+          <div class="flex flex-col items-start gap-2 md:flex-row md:items-center">
+            <div class="text-right">
+              <p class="text-xs uppercase tracking-wide text-[#dadada]">{{ adscripcion || 'Unidad' }}</p>
+              <p class="text-sm font-semibold">{{ nombreUsuario }}</p>
+            </div>
+            <button @click="cerrarSesion" class="rounded-xl border border-white/30 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10">
+              Cerrar sesión
+            </button>
+          </div>
         </div>
       </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-4 py-6">
-      <div class="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div class="flex items-center gap-3">
-          <span class="text-sm font-semibold text-gray-700">{{ fechaActual }}</span>
+    <main class="max-w-7xl mx-auto px-4 py-6 md:px-6">
+      <section class="mb-6 grid gap-4 md:grid-cols-3">
+        <div class="rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-[0.25em] text-[#878787]">Total</p>
+          <div class="mt-3 flex items-end justify-between">
+            <span class="text-3xl font-black text-[#575756]">{{ totalRegistros }}</span>
+            <span class="rounded-full bg-[#ececec] px-2 py-1 text-[10px] font-bold uppercase text-[#575756]">IPH</span>
+          </div>
         </div>
-        <div class="flex items-center gap-3">
-          <button @click="crearIPH" class="bg-[#2e7d32] text-white px-5 py-2 rounded-md font-semibold hover:opacity-90">
-            NUEVO IPH
-          </button>
-          <button @click="crearIPHConCarpeta" class="bg-[#2e7d32] text-white px-5 py-2 rounded-md font-semibold hover:opacity-90">
-            CON CARPETA EXISTENTE
-          </button>
+        <div class="rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-[0.25em] text-[#878787]">Activas</p>
+          <div class="mt-3 flex items-end justify-between">
+            <span class="text-3xl font-black text-[#2d6d37]">{{ iphsActivas }}</span>
+            <span class="rounded-full bg-[#dfeee0] px-2 py-1 text-[10px] font-bold uppercase text-[#2d6d37]">Vigentes</span>
+          </div>
         </div>
-      </div>
+        <div class="rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-[0.25em] text-[#878787]">Pendientes</p>
+          <div class="mt-3 flex items-end justify-between">
+            <span class="text-3xl font-black text-[#7a5c00]">{{ iphsPendientes }}</span>
+            <span class="rounded-full bg-[#f7f0d7] px-2 py-1 text-[10px] font-bold uppercase text-[#7a5c00]">Por revisar</span>
+          </div>
+        </div>
+      </section>
 
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-5">
-        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-center">
-          <label class="text-sm font-bold text-gray-700">BUSCAR</label>
-          <select v-model="filtroBusqueda" class="border border-gray-300 rounded px-3 py-2 min-w-[220px]">
-            <option value="0">POR:</option>
-            <option value="1">IPH</option>
-            <option value="2">FECHA INICIO IPH</option>
-            <option value="3">NUC</option>
-            <option value="4">DENUNCIANTE</option>
-            <option value="5">IMPUTADO</option>
-          </select>
+      <section class="rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm mb-6">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-sm font-semibold text-[#575756]">{{ fechaActual }}</span>
+          </div>
+
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <button @click="crearIPH" class="rounded-xl bg-[#575756] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#454544]">
+              NUEVO IPH
+            </button>
+            <button @click="crearIPHConCarpeta" class="rounded-xl bg-[#878787] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#737373]">
+              CON CARPETA EXISTENTE
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="mb-6 rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div class="flex items-center gap-3">
+            <label class="text-sm font-bold uppercase tracking-[0.2em] text-[#575756]">Buscar</label>
+            <select v-model="filtroBusqueda" class="min-w-[240px] rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5 text-sm text-[#1f1f1e] focus:border-[#878787] focus:outline-none">
+              <option value="0">POR:</option>
+              <option value="1">IPH</option>
+              <option value="2">FECHA INICIO IPH</option>
+              <option value="3">NUC</option>
+              <option value="4">DENUNCIANTE</option>
+              <option value="5">IMPUTADO</option>
+            </select>
+          </div>
         </div>
 
-        <div class="mt-5 flex flex-wrap items-center justify-center gap-3">
+        <div class="mt-5 grid gap-3 xl:grid-cols-[repeat(auto-fit,minmax(180px,1fr))]">
           <template v-if="filtroBusqueda === '1'">
-            <label class="font-bold text-sm text-gray-700">IPH</label>
-            <input v-model="busqueda.iph" class="border border-gray-300 rounded px-3 py-2" placeholder="Escribe el IPH" />
+            <div class="xl:col-span-2">
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">IPH</label>
+              <input v-model="busqueda.iph" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" placeholder="Escribe el IPH" />
+            </div>
           </template>
 
           <template v-else-if="filtroBusqueda === '2'">
-            <label class="font-bold text-sm text-gray-700">FECHA INICIO</label>
-            <input v-model="busqueda.fechaInicio" type="date" class="border border-gray-300 rounded px-3 py-2" />
-            <label class="font-bold text-sm text-gray-700">FECHA FIN</label>
-            <input v-model="busqueda.fechaFin" type="date" class="border border-gray-300 rounded px-3 py-2" />
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Fecha inicio</label>
+              <input v-model="busqueda.fechaInicio" type="date" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Fecha fin</label>
+              <input v-model="busqueda.fechaFin" type="date" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
           </template>
 
           <template v-else-if="filtroBusqueda === '3'">
-            <label class="font-bold text-sm text-gray-700">NUC</label>
-            <input v-model="busqueda.nuc" class="border border-gray-300 rounded px-3 py-2" placeholder="Ej. 123/2026" />
+            <div class="xl:col-span-2">
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">NUC</label>
+              <input v-model="busqueda.nuc" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" placeholder="Ej. 123/2026" />
+            </div>
           </template>
 
           <template v-else-if="filtroBusqueda === '4'">
-            <label class="font-bold text-sm text-gray-700">NOMBRE</label>
-            <input v-model="busqueda.nombreDen" class="border border-gray-300 rounded px-3 py-2" />
-            <label class="font-bold text-sm text-gray-700">PATERNO</label>
-            <input v-model="busqueda.paternoDen" class="border border-gray-300 rounded px-3 py-2" />
-            <label class="font-bold text-sm text-gray-700">MATERNO</label>
-            <input v-model="busqueda.maternoDen" class="border border-gray-300 rounded px-3 py-2" />
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Nombre</label>
+              <input v-model="busqueda.nombreDen" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Paterno</label>
+              <input v-model="busqueda.paternoDen" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Materno</label>
+              <input v-model="busqueda.maternoDen" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
           </template>
 
           <template v-else-if="filtroBusqueda === '5'">
-            <label class="font-bold text-sm text-gray-700">NOMBRE</label>
-            <input v-model="busqueda.nombreIm" class="border border-gray-300 rounded px-3 py-2" />
-            <label class="font-bold text-sm text-gray-700">PATERNO</label>
-            <input v-model="busqueda.paternoIm" class="border border-gray-300 rounded px-3 py-2" />
-            <label class="font-bold text-sm text-gray-700">MATERNO</label>
-            <input v-model="busqueda.maternoIm" class="border border-gray-300 rounded px-3 py-2" />
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Nombre</label>
+              <input v-model="busqueda.nombreIm" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Paterno</label>
+              <input v-model="busqueda.paternoIm" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
+            <div>
+              <label class="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-[#575756]">Materno</label>
+              <input v-model="busqueda.maternoIm" class="w-full rounded-xl border border-[#d0d0d0] bg-[#fafafa] px-3 py-2.5" />
+            </div>
           </template>
 
-          <button
-            v-if="filtroBusqueda !== '0'"
-            @click="ejecutarBusqueda"
-            class="bg-[#2e7d32] text-white px-5 py-2 rounded-md font-semibold hover:opacity-90"
-          >
-            ACEPTAR
-          </button>
+          <div v-if="filtroBusqueda !== '0'" class="flex items-end">
+            <button @click="ejecutarBusqueda" class="w-full rounded-xl bg-[#575756] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#454544]">
+              ACEPTAR
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <section class="overflow-hidden rounded-2xl border border-[#d9d9d9] bg-white shadow-sm">
         <div class="overflow-x-auto">
           <table class="min-w-full text-left">
-            <thead class="bg-[#87868B] text-white">
+            <thead class="bg-[#878787] text-white">
               <tr>
-                <th class="px-4 py-3"> </th>
-                <th class="px-4 py-3">FOLIO INTERNO</th>
-                <th class="px-4 py-3">FECHA INICIO</th>
-                <th class="px-4 py-3">DENUNCIANTE</th>
-                <th class="px-4 py-3">IMPUTADO</th>
-                <th class="px-4 py-3">NUC</th>
-                <th class="px-4 py-3">UNIDAD</th>
-                <th class="px-4 py-3">ESTADO CARPETA</th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]"> </th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]">Folio interno</th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]">Fecha inicio</th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]">Denunciante</th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]">Imputado</th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]">NUC</th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]">Unidad</th>
+                <th class="px-4 py-3 text-xs uppercase tracking-[0.2em]">Estado</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="iph in resultados" :key="iph.id || iph.ID_IPH" class="border-t border-gray-200 hover:bg-gray-50">
+              <tr v-for="iph in resultados" :key="iph.id || iph.ID_IPH" class="border-t border-[#ececec] hover:bg-[#f9f9f9]">
                 <td class="px-4 py-3">
-                  <button @click="$router.push({ name: 'formulario-iph', params: { id: iph.id || iph.ID_IPH } })" class="bg-white border border-gray-300 rounded p-1 hover:bg-gray-100">
-                    <span class="text-lg">👁</span>
+                  <button @click="$router.push({ name: 'formulario-iph', params: { id: iph.id || iph.ID_IPH } })" class="rounded-lg border border-[#d0d0d0] bg-white px-2 py-1.5 text-base transition hover:border-[#575756] hover:bg-[#f0f0f0]">
+                    👁
                   </button>
                 </td>
-                <td class="px-4 py-3 font-semibold text-gray-800">{{ iph.folio_interno || iph.IPH || "—" }}</td>
-                <td class="px-4 py-3 text-gray-700">{{ formatearFecha(iph.creado_en || iph.FECHA_IPH) }}</td>
-                <td class="px-4 py-3 text-gray-700">{{ iph.denunciante || iph.DENUNCIANTE || "—" }}</td>
-                <td class="px-4 py-3 text-gray-700">{{ iph.imputado || iph.IMPUTADO || "—" }}</td>
-                <td class="px-4 py-3 text-gray-700">{{ iph.no_expediente || iph.NUC || "—" }}</td>
-                <td class="px-4 py-3 text-gray-700">{{ iph.adscripcion || iph.UNIDAD || "—" }}</td>
+                <td class="px-4 py-3 font-semibold text-[#1f1f1e]">{{ iph.folio_interno || iph.IPH || "—" }}</td>
+                <td class="px-4 py-3 text-[#4d4d4d]">{{ formatearFecha(iph.creado_en || iph.FECHA_IPH) }}</td>
+                <td class="px-4 py-3 text-[#4d4d4d]">{{ iph.denunciante || iph.DENUNCIANTE || "—" }}</td>
+                <td class="px-4 py-3 text-[#4d4d4d]">{{ iph.imputado || iph.IMPUTADO || "—" }}</td>
+                <td class="px-4 py-3 text-[#4d4d4d]">{{ iph.no_expediente || iph.NUC || "—" }}</td>
+                <td class="px-4 py-3 text-[#4d4d4d]">{{ iph.adscripcion || iph.UNIDAD || "—" }}</td>
                 <td class="px-4 py-3">
                   <span
-                    class="inline-flex rounded-full px-2 py-1 text-xs font-semibold"
-                    :class="(iph.estado || iph.ESTADO_CARPETA || 'EN_TRAMITE') === 'ACTIVA' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                    class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
+                    :class="(iph.estado || iph.ESTADO_CARPETA || 'EN_TRAMITE').toUpperCase() === 'ACTIVA' ? 'bg-[#dfeee0] text-[#2d6d37]' : 'bg-[#f7f0d7] text-[#7a5c00]'"
                   >
                     {{ iph.estado || iph.ESTADO_CARPETA || 'EN_TRAMITE' }}
                   </span>
                 </td>
               </tr>
               <tr v-if="resultados.length === 0">
-                <td colspan="8" class="px-4 py-8 text-center text-gray-500">No hay registros para mostrar.</td>
+                <td colspan="8" class="px-4 py-10 text-center text-[#575756]">No hay registros para mostrar.</td>
               </tr>
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     </main>
-
   </div>
 </template>
 
@@ -171,6 +226,10 @@ const fechaActual = computed(() => new Date().toLocaleDateString("es-MX", {
   month: "long",
   year: "numeric",
 }));
+
+const totalRegistros = computed(() => listaIPH.value.length);
+const iphsActivas = computed(() => listaIPH.value.filter((iph) => (iph.estado || iph.ESTADO_CARPETA || "EN_TRAMITE").toUpperCase() === "ACTIVA").length);
+const iphsPendientes = computed(() => listaIPH.value.filter((iph) => (iph.estado || iph.ESTADO_CARPETA || "EN_TRAMITE").toUpperCase() !== "ACTIVA").length);
 
 function formatearFecha(valor) {
   if (!valor) return "—";

@@ -10,7 +10,15 @@ const routes = [
   { path: "/login", name: "login", component: LoginView, meta: { publica: true } },
   { path: "/", name: "panel", component: PanelView },
   { path: "/registro-iph", name: "registro-iph", component: RegistroIPHView },
-  { path: "/iph/:id", name: "formulario-iph", component: FormularioIPHView, props: true },
+  {
+    path: "/iph/:id/:modulo?",
+    name: "formulario-iph",
+    component: FormularioIPHView,
+    props: (route) => ({
+      id: route.params.id,
+      modulo: route.params.modulo || null,
+    }),
+  },
 ];
 
 const router = createRouter({

@@ -5,11 +5,15 @@ export default {
     extend: {
       colors: {
         institucional: {
-          oscuro: "#2c2c26",
-          verde: "#4b4b3f",
-          dorado: "#a89968",
-          claro: "#f2f2ee",
+          base: "#dadada",
+          medio: "#878787",
+          oscuro: "#575756",
+          fondo: "#f3f3f3",
+          texto: "#1f1f1e",
         },
+      },
+      boxShadow: {
+        institucional: "0 18px 45px rgba(87, 87, 86, 0.14)",
       },
     },
   },
