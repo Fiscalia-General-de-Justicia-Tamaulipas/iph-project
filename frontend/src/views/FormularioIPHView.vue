@@ -46,6 +46,7 @@
           :is="componenteActivo"
           v-if="componenteActivo"
           :iph-id="iphId"
+          :tipo="moduloActivo"
           @guardado="recargarEstado"
         />
         <div v-else class="bg-white rounded-lg shadow p-6 text-center text-gray-400">
@@ -63,7 +64,15 @@ import { ref, computed, onMounted } from "vue";
 import api from "../store/api";
 
 import ConocimientoHechoForm from "./modulos/ConocimientoHechoForm.vue";
+import ActaNoticiaForm from "./modulos/ActaNoticiaForm.vue";
+import AccionesRealizadasForm from "./modulos/AccionesRealizadasForm.vue";
 import DenuncianteForm from "./modulos/DenuncianteForm.vue";
+import PoliciasForm from "./modulos/PoliciasForm.vue";
+import InspeccionLugarForm from "./modulos/InspeccionLugarForm.vue";
+import InspeccionPersonaForm from "./modulos/InspeccionPersonaForm.vue";
+import InspeccionVehiculoForm from "./modulos/InspeccionVehiculoForm.vue";
+import NarracionPrimerRespondienteForm from "./modulos/NarracionPrimerRespondienteForm.vue";
+import ActuacionesForm from "./modulos/ActuacionesForm.vue";
 
 const props = defineProps({ id: { type: [String, Number], required: true } });
 const iphId = computed(() => props.id);
@@ -77,7 +86,20 @@ const exportando = ref(false);
 // lo implementes, siguiendo el mismo patrón (props: iphId, emit: 'guardado').
 const componentesPorModulo = {
   conocimiento_hecho: ConocimientoHechoForm,
+  acta_noticia: ActaNoticiaForm,
+  acciones_realizadas: AccionesRealizadasForm,
   denunciante: DenuncianteForm,
+  ofendido: DenuncianteForm,
+  victima: DenuncianteForm,
+  imputado: DenuncianteForm,
+  testigo: DenuncianteForm,
+  inspeccion_lugar: InspeccionLugarForm,
+  inspeccion_persona: InspeccionPersonaForm,
+  inspeccion_vehiculo: InspeccionVehiculoForm,
+  inspeccion_vehiculos: InspeccionVehiculoForm,
+  narracion_primer_respondiente: NarracionPrimerRespondienteForm,
+  actuaciones: ActuacionesForm,
+  policias: PoliciasForm,
 };
 
 const componenteActivo = computed(() => componentesPorModulo[moduloActivo.value] || null);

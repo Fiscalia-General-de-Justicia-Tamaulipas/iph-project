@@ -3,6 +3,7 @@ from flask_jwt_extended import (
     create_access_token,
     jwt_required,
     get_jwt_identity,
+    get_jwt,
 )
 from app.extensions import db
 
@@ -159,7 +160,17 @@ def login():
 
     if login_row:
         usuario = _normalize_user_data(login_row)
-        token = create_access_token(identity=str(usuario.get("id_usuario") or usuario.get("id") or usuario_input))
+        user_id = str(usuario.get("id_usuario") or usuario.get("id") or usuario_input)
+        token = create_access_token(
+            identity=user_id,
+            additional_claims={
+                "id_municipio": usuario.get("id_municipio") or usuario.get("IdMunicipio"),
+                "id_unidad": usuario.get("id_unidad") or usuario.get("IdUnidad"),
+                "adscripcion": usuario.get("adscripcion") or usuario.get("UNDD_DSCRPCION") or "",
+                "puesto": usuario.get("puesto") or usuario.get("PUESTO") or "",
+                "nombre_completo": usuario.get("nombre_completo") or usuario.get("usuario") or user_id,
+            },
+        )
         return jsonify({"access_token": token, "usuario": usuario}), 200
 
     try:

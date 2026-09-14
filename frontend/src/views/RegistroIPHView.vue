@@ -72,12 +72,20 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { useAuthStore } from "../store/auth";
 
+const route = useRoute();
 const auth = useAuthStore();
 const iniciado = ref(false);
-const numeroNuc = ref("2026/000123");
+const numeroNuc = ref("");
+
+function sincronizarNumeroNuc() {
+  numeroNuc.value = route.query?.folio_interno || route.query?.IPH || route.query?.numero_carpeta || "2026/000123";
+}
+
+watch(() => route.query, sincronizarNumeroNuc, { immediate: true, deep: true });
 
 const nombreUsuario = computed(() => auth.usuario?.nombre_completo || auth.usuario?.usuario || "USUARIO");
 const adscripcion = computed(() => auth.usuario?.UNDD_DSCRPCION || auth.usuario?.adscripcion || "");

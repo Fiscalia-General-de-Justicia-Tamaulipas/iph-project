@@ -8,6 +8,11 @@ WORKDIR /app
 
 # Dependencias del sistema + Microsoft ODBC Driver 17 para SQL Server
 RUN rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* && \
+    rm -f /etc/apt/sources.list.d/debian.sources && \
+    printf '%s\n' \
+        'deb http://deb.debian.org/debian bookworm main' \
+        'deb http://deb.debian.org/debian-security bookworm-security main' \
+        > /etc/apt/sources.list && \
     apt-get update -o Acquire::Retries=5 --fix-missing && \
     apt-get install -y --no-install-recommends \
         curl \

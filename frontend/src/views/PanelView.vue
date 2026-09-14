@@ -21,7 +21,7 @@
           <span class="text-sm font-semibold text-gray-700">{{ fechaActual }}</span>
         </div>
         <div class="flex items-center gap-3">
-          <button @click="mostrarModalCrear = true" class="bg-[#2e7d32] text-white px-5 py-2 rounded-md font-semibold hover:opacity-90">
+          <button @click="crearIPH" class="bg-[#2e7d32] text-white px-5 py-2 rounded-md font-semibold hover:opacity-90">
             NUEVO IPH
           </button>
           <button @click="crearIPHConCarpeta" class="bg-[#2e7d32] text-white px-5 py-2 rounded-md font-semibold hover:opacity-90">
@@ -135,30 +135,19 @@
       </div>
     </main>
 
-    <div v-if="mostrarModalCrear" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-white rounded-lg p-6 w-full max-w-sm">
-        <h3 class="font-semibold mb-4 text-gray-800">Nuevo IPH</h3>
-        <label class="block text-sm text-gray-600 mb-1">Folio interno</label>
-        <input v-model="nuevoFolio" class="w-full border rounded-md px-3 py-2 mb-4" placeholder="Ej. 28/41/005/00025/2026" />
-        <div class="flex justify-end gap-2">
-          <button @click="mostrarModalCrear = false" class="px-4 py-2 text-gray-600">Cancelar</button>
-          <button @click="crearIPH" class="px-4 py-2 bg-[#2e7d32] text-white rounded-md">Crear</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { useAuthStore } from "../store/auth";
 import api from "../store/api";
 
+const router = useRouter();
 const auth = useAuthStore();
 const listaIPH = ref([]);
 const filtroBusqueda = ref("0");
-const mostrarModalCrear = ref(false);
-const nuevoFolio = ref("");
 
 const busqueda = ref({
   iph: "",
@@ -247,16 +236,37 @@ async function cargarIPH() {
 }
 
 async function crearIPH() {
-  if (!nuevoFolio.value.trim()) return;
   try {
-    await api.post("/iph/", { folio_interno: nuevoFolio.value.trim() });
+    if (!auth.usuario?.id_municipio && !auth.usuario?.IdMunicipio && !auth.usuario?.id_unidad && !auth.usuario?.IdUnidad) {
+      await auth.sincronizarUsuario();
+    }
+
+    const payload = {
+      municipio: auth.usuario?.id_municipio ?? auth.usuario?.IdMunicipio ?? null,
+      unidad: auth.usuario?.id_unidad ?? auth.usuario?.IdUnidad ?? null,
+    };
+
+    if (payload.municipio == null || payload.unidad == null) {
+      throw new Error("La sesión actual no tiene municipio o unidad asociados.");
+    }
+
+    const { data } = await api.post("/iph/", payload);
+    const idIph = data.id || data.ID_IPH;
+    const folio = data.folio_interno || data.IPH || "";
+
+    await router.push({
+      name: "registro-iph",
+      query: {
+        ID_IPH: idIph ?? "",
+        ID_CARPETA: data.id_carpeta || 0,
+        ESTADO_CARPETA: data.estado_carpeta || "TRAMITE",
+        folio_interno: folio,
+      },
+    });
   } catch (error) {
     console.error("No se pudo crear el IPH:", error);
+    window.alert(error.response?.data?.msg || error.message || "No se pudo generar el IPH en la base de datos principal.");
   }
-  nuevoFolio.value = "";
-  mostrarModalCrear.value = false;
-  await cargarIPH();
-  window.location.href = "/registro-iph";
 }
 
 function crearIPHConCarpeta() {
