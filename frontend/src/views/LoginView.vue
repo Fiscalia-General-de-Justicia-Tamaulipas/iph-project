@@ -1,9 +1,12 @@
 <template>
   <div class="login-page">
     <div class="login-scene">
-      <div class="scene-orb orb-one"></div>
-      <div class="scene-orb orb-two"></div>
-      <div class="scene-grid"></div>
+      <svg class="wave-background" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <path class="wave wave-back" d="M0 0h1440v260c-185-80-281 46-438 79-184 39-264-55-420-26C396 345 255 478 0 393V0Z" />
+        <path class="wave wave-mid" d="M0 526c220-180 375-116 560-62 218 64 323-34 485-131 160-96 278-105 395-63v630H0V526Z" />
+        <path class="wave wave-front" d="M0 759c200-145 381-144 578-49 193 93 295 99 477 13 168-80 260-162 385-173v350H0V759Z" />
+        <path class="wave wave-light" d="M0 900V635c203 12 321 183 528 193 211 10 339-155 540-234 137-54 262-34 372 8v298H0Z" />
+      </svg>
 
       <header class="login-header">
         <div class="brand-mini">
@@ -14,8 +17,11 @@
 
       <div class="login-grid">
         <section class="identity-panel">
+          <div class="identity-seal">
+            <img src="/logos/logo_fgjtam.png" alt="Fiscalía General de Justicia de Tamaulipas" />
+          </div>
           <div class="identity-badge">Sistema institucional</div>
-          <h1>Informe Policial<br />Homologado</h1>
+          <h1>Informe<br />Policial<br />Homologado</h1>
           <p>
             Centraliza la captura, validación y seguimiento de los registros del IPH con una experiencia de trabajo institucional, segura y profesional.
           </p>
