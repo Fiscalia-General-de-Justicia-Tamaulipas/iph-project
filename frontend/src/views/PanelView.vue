@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-[#efefef]">
+  <div class="panel-view min-h-screen bg-[#efefef]">
     <header class="bg-[#575756] text-white shadow-sm border-b border-[#434342]">
       <div class="max-w-7xl mx-auto px-4 py-4 md:px-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

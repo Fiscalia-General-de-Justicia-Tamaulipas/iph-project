@@ -1,109 +1,130 @@
 <template>
-  <div class="min-h-screen bg-[#efefef]">
-    <header class="bg-[#575756] text-white px-6 py-4 shadow-sm">
-      <div class="max-w-7xl mx-auto flex justify-between items-center gap-4">
-        <div>
-          <button @click="$router.push({ name: 'panel' })" class="text-xs text-[#dadada] hover:text-white hover:underline">← Volver al panel</button>
-          <h1 class="font-bold text-lg mt-2">IPH — Folio {{ iph?.folio_interno }}</h1>
+  <div class="iph-workspace">
+    <header class="iph-topbar">
+      <div class="iph-brand">
+        <img src="/logos/logo_fgjtam.png" alt="Logo FGJTAM" />
+        <div class="iph-brand-links">
+          <span class="iph-brand-title">Capturar Hecho Delictivo</span>
+          <button type="button" @click="irAlPanel">Buscar</button>
+          <button type="button" @click="irAlPanel">Inicio</button>
+          <button type="button" @click="cerrarSesion">Salir</button>
         </div>
-        <div class="flex items-center gap-2">
-          <button
-            v-if="moduloActivo"
-            @click="volverAlArbol"
-            class="bg-[#dadada] text-[#575756] px-3 py-2 rounded-md text-sm font-semibold hover:bg-[#cfcfcf]"
-          >
-            Volver al árbol
-          </button>
-          <button
-            @click="exportarPDF"
-            :disabled="exportando"
-            class="bg-[#878787] text-white px-4 py-2 rounded-md hover:bg-[#6d6d6d] disabled:opacity-50"
-          >
-            {{ exportando ? "Generando..." : "Exportar a PDF" }}
-          </button>
-        </div>
+      </div>
+      <div class="iph-user-summary">
+        <span>USUARIO: {{ nombreUsuario }}</span>
+        <span>NOMBRE: {{ nombreCompleto }}</span>
+        <span>ENTIDAD: {{ adscripcion || "—" }}</span>
+        <span>PUESTO: {{ puesto || "—" }}</span>
       </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-4 py-6">
-      <div v-if="!moduloActivo" class="mx-auto max-w-4xl">
-        <div class="rounded-[32px] border border-[#d7d7d7] bg-white shadow-[0_20px_50px_rgba(87,87,86,0.08)] overflow-hidden">
-          <div class="bg-[#575756] px-6 py-4 text-center text-white">
-            <p class="text-[10px] uppercase tracking-[0.28em] text-[#dadada]">Expediente</p>
-            <h2 class="mt-2 text-2xl font-black">Árbol del IPH</h2>
-          </div>
+    <div class="iph-layout">
+      <TransitionGroup name="sidebar-cascade" tag="nav" class="iph-sidebar" aria-label="Secciones del IPH">
+        <button
+          v-for="(seccion, index) in seccionesVisibles"
+          :key="seccion.id"
+          type="button"
+          class="iph-nav-item"
+          :class="{ 'is-active': seccionActiva.id === seccion.id }"
+          :aria-current="seccionActiva.id === seccion.id ? 'page' : undefined"
+          :style="{ '--sidebar-order': index }"
+          @click="navegarSeccion(seccion)"
+        >
+          <span class="iph-nav-icon" aria-hidden="true">{{ seccion.pendiente ? "◉" : "♟" }}</span>
+          {{ seccion.etiqueta }}
+        </button>
+      </TransitionGroup>
 
-          <div class="p-6">
-            <div class="mb-6 rounded-2xl border border-[#ececec] bg-[#f7f7f7] px-4 py-3">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <p class="text-[10px] uppercase tracking-[0.24em] text-[#878787]">Progreso</p>
-                  <p class="mt-1 text-sm font-bold text-[#575756]">Avance del expediente</p>
-                </div>
-                <span class="rounded-full border border-[#d9d9d9] bg-white px-3 py-1 text-sm font-bold text-[#575756]">{{ modulosCompletados }}/{{ modulos.length }}</span>
-              </div>
-            </div>
-
-            <div class="space-y-5">
-              <div v-for="nivel in arbolModulos" :key="nivel.label" class="rounded-2xl border border-[#ececec] bg-[#fafafa] p-4">
-                <div class="mb-3 font-black uppercase tracking-[0.18em] text-[#575756] text-[11px]">{{ nivel.label }}</div>
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <button
-                    v-for="mod in nivel.items"
-                    :key="mod.clave"
-                    @click="navegarModulo(mod.clave)"
-                    class="group flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left transition-all duration-200"
-                    :class="moduloActivo === mod.clave ? 'border-[#575756] bg-[#f5f5f5] shadow-[0_8px_18px_rgba(87,87,86,0.08)]' : 'border-[#e8e8e8] bg-white hover:border-[#878787] hover:bg-[#fafafa]'"
-                  >
-                    <span class="font-semibold text-sm text-[#2f2f2f]">{{ mod.titulo }}</span>
-                    <span
-                      class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
-                      :class="estadoModulos[mod.clave] ? 'bg-[#dfeee0] text-[#2d6d37]' : 'bg-[#ececec] text-[#575756]'"
-                    >
-                      {{ estadoModulos[mod.clave] ? "Listo" : "Pendiente" }}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <section v-else class="mx-auto max-w-5xl rounded-[28px] border border-[#d7d7d7] bg-white shadow-[0_18px_40px_rgba(87,87,86,0.08)] p-5">
-        <div class="mb-5 flex items-center justify-between border-b border-[#e7e7e7] pb-3">
+      <main class="iph-main">
+        <section class="iph-reference-card" aria-label="Datos de referencia del IPH">
           <div>
-            <p class="text-[10px] uppercase tracking-[0.25em] text-[#878787]">Módulo activo</p>
-            <h2 class="text-xl font-black text-[#575756] mt-1">{{ moduloActual?.titulo || 'Módulo' }}</h2>
+            <span class="iph-reference-label">Folio</span>
+            <strong>{{ folio }}</strong>
+          </div>
+          <div>
+            <span class="iph-reference-label">Número de referencia</span>
+            <strong>{{ numeroReferencia }}</strong>
           </div>
           <button
-            @click="volverAlArbol"
-            class="rounded-full border border-[#d9d9d9] bg-[#f7f7f7] px-3 py-1.5 text-sm font-bold text-[#575756] hover:border-[#878787]"
+            v-if="seccionActiva.id === 'seccion-1'"
+            type="button"
+            class="iph-primary-button"
+            disabled
+            title="El flujo de supervisión aún no está integrado."
           >
-            Volver al árbol
+            PARA SUPERVISAR
           </button>
-        </div>
+          <button
+            v-else
+            type="button"
+            class="iph-primary-button"
+            :disabled="exportando"
+            @click="exportarPDF"
+          >
+            {{ exportando ? "GENERANDO..." : "EXPORTAR PDF" }}
+          </button>
+        </section>
 
-        <component
-          :is="componenteActivo"
-          v-if="componenteActivo"
-          :iph-id="iphId"
-          :tipo="moduloActivo"
-          @guardado="recargarEstado"
-          @cancelar="volverAlArbol"
-        />
-        <div v-else class="bg-white rounded-lg shadow p-6 text-center text-gray-400">
-          Este módulo está en construcción.
-        </div>
-      </section>
-    </main>
+        <section class="iph-section-card">
+          <header class="iph-section-heading">
+            <div>
+              <p>Campo obligatorio*</p>
+              <h1>{{ seccionActiva.titulo }}</h1>
+            </div>
+            <span v-if="seccionActiva.pendiente" class="iph-pending-badge">Pendiente de integrar</span>
+          </header>
+
+          <div v-if="seccionActiva.modulos.length" class="iph-section-content">
+            <nav
+              v-if="seccionActiva.id !== 'seccion-1'"
+              class="iph-module-tabs"
+              :aria-label="`Formularios de ${seccionActiva.etiqueta}`"
+            >
+              <button
+                v-for="moduloItem in seccionActiva.modulos"
+                :key="moduloItem.clave"
+                type="button"
+                :class="{ 'is-active': moduloActivo === moduloItem.clave }"
+                @click="navegarModulo(moduloItem.clave)"
+              >
+                {{ moduloItem.titulo }}
+              </button>
+            </nav>
+
+            <component
+              :is="componenteActivo"
+              v-if="componenteActivo"
+              :key="moduloActivo"
+              :iph-id="iphId"
+              v-bind="propsFormulario"
+              :tipo="moduloActivo"
+              @guardado="recargarEstado"
+              @cancelar="irAlPanel"
+              @siguiente="navegarSeccion(secciones[1])"
+              @anexos-actualizados="actualizarAnexosVisibles"
+            />
+            <p v-else class="iph-empty-state">Selecciona un formulario para continuar.</p>
+          </div>
+
+          <div v-else class="iph-pending-content">
+            <h2>{{ seccionActiva.titulo }}</h2>
+            <p>
+              Esta sección ya está contemplada en la navegación del IPH y queda preparada para integrar
+              sus campos cuando se defina su contenido. No se han agregado campos ficticios ni se
+              modificarán los datos existentes.
+            </p>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import api from "../store/api";
+import { useAuthStore } from "../store/auth";
 
 import ConocimientoHechoForm from "./modulos/ConocimientoHechoForm.vue";
 import ActaNoticiaForm from "./modulos/ActaNoticiaForm.vue";
@@ -115,6 +136,8 @@ import InspeccionPersonaForm from "./modulos/InspeccionPersonaForm.vue";
 import InspeccionVehiculoForm from "./modulos/InspeccionVehiculoForm.vue";
 import NarracionPrimerRespondienteForm from "./modulos/NarracionPrimerRespondienteForm.vue";
 import ActuacionesForm from "./modulos/ActuacionesForm.vue";
+import AnexosPruebaForm from "./modulos/AnexosPruebaForm.vue";
+import PuestaDisposicionForm from "./modulos/PuestaDisposicionForm.vue";
 
 const props = defineProps({
   id: { type: [String, Number], required: true },
@@ -122,15 +145,14 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const auth = useAuthStore();
 const iphId = computed(() => props.id);
-
 const iph = ref(null);
-const estadoModulos = ref({});
 const exportando = ref(false);
-
-const moduloActivo = computed(() => props.modulo || null);
+const anexosEntregados = ref({});
 
 const componentesPorModulo = {
+  puesta_disposicion: PuestaDisposicionForm,
   conocimiento_hecho: ConocimientoHechoForm,
   acta_noticia: ActaNoticiaForm,
   acciones_realizadas: AccionesRealizadasForm,
@@ -146,58 +168,186 @@ const componentesPorModulo = {
   narracion_primer_respondiente: NarracionPrimerRespondienteForm,
   actuaciones: ActuacionesForm,
   policias: PoliciasForm,
+  anexo_b: AnexosPruebaForm,
+  anexo_d: AnexosPruebaForm,
+  anexo_e: AnexosPruebaForm,
+  anexo_f: AnexosPruebaForm,
+  bitacora: AnexosPruebaForm,
 };
 
-const componenteActivo = computed(() => (moduloActivo.value ? componentesPorModulo[moduloActivo.value] || null : null));
-const moduloActual = computed(() => modulos.find((mod) => mod.clave === moduloActivo.value) || null);
-
-const modulos = [
-  { clave: "conocimiento_hecho", titulo: "Conocimiento de Hecho", descripcion: "Registro de la noticia" },
-  { clave: "acta_noticia", titulo: "Acta de Noticia", descripcion: "Acta de noticia del hecho" },
-  { clave: "acciones_realizadas", titulo: "Acciones Realizadas", descripcion: "Acciones realizadas" },
-  { clave: "denunciante", titulo: "Denunciante", descripcion: "Datos del denunciante" },
-  { clave: "ofendido", titulo: "Ofendido", descripcion: "Datos del ofendido" },
-  { clave: "victima", titulo: "Víctima", descripcion: "Datos de la víctima" },
-  { clave: "policias", titulo: "Policías", descripcion: "Policías actuantes" },
-  { clave: "imputado", titulo: "Imputado", descripcion: "Datos del imputado" },
-  { clave: "testigo", titulo: "Testigo", descripcion: "Testigos del hecho" },
-  { clave: "inspeccion_lugar", titulo: "Inspección de Lugar", descripcion: "Inspección del lugar" },
-  { clave: "inspeccion_persona", titulo: "Inspección de Persona", descripcion: "Inspección de persona" },
-  { clave: "inspeccion_vehiculos", titulo: "Inspección de Vehículos", descripcion: "Inspección de vehículos" },
-  { clave: "narracion_primer_respondiente", titulo: "Narración del Primer Respondiente", descripcion: "Narración de la actuación" },
-  { clave: "actuaciones", titulo: "Actuaciones", descripcion: "Actuaciones realizadas" },
+const secciones = [
+  {
+    id: "seccion-1",
+    etiqueta: "SECCIÓN 1",
+    titulo: "SECCIÓN 1. PUESTA A DISPOSICIÓN",
+    pendiente: false,
+    modulos: [{ clave: "puesta_disposicion", titulo: "Puesta a disposición" }],
+  },
+  {
+    id: "seccion-2",
+    etiqueta: "SECCIÓN 2",
+    titulo: "SECCIÓN 2. PRIMER RESPONDIENTE",
+    pendiente: false,
+    modulos: [{ clave: "policias", titulo: "Datos del primer respondiente" }],
+  },
+  {
+    id: "seccion-3",
+    etiqueta: "SECCIÓN 3",
+    titulo: "SECCIÓN 3. CONOCIMIENTO DEL HECHO Y SEGUIMIENTO DE LA ACTUACIÓN DE LA AUTORIDAD",
+    pendiente: false,
+    modulos: [
+      { clave: "conocimiento_hecho", titulo: "Conocimiento de hecho" },
+      { clave: "acta_noticia", titulo: "Acta de noticia" },
+      { clave: "acciones_realizadas", titulo: "Acciones realizadas" },
+      { clave: "actuaciones", titulo: "Actuaciones" },
+    ],
+  },
+  {
+    id: "seccion-4",
+    etiqueta: "SECCIÓN 4",
+    titulo: "SECCIÓN 4. LUGAR DE LA INTERVENCIÓN",
+    pendiente: false,
+    modulos: [
+      { clave: "inspeccion_lugar", titulo: "Inspección del lugar" },
+    ],
+  },
+  {
+    id: "seccion-5",
+    etiqueta: "SECCIÓN 5",
+    titulo: "SECCIÓN 5. NARRATIVA DE LOS HECHOS",
+    pendiente: false,
+    modulos: [{ clave: "narracion_primer_respondiente", titulo: "Narrativa y delitos" }],
+  },
+  {
+    id: "anexo-a",
+    etiqueta: "ANEXO A",
+    titulo: "ANEXO A. DETENCIÓN(ES)",
+    pendiente: false,
+    modulos: [
+      { clave: "imputado", titulo: "Datos de la persona detenida" },
+      { clave: "inspeccion_persona", titulo: "Inspección a la persona detenida" },
+    ],
+  },
+  {
+    id: "anexo-b",
+    etiqueta: "ANEXO B",
+    titulo: "ANEXO B. INFORME DEL USO DE LA FUERZA",
+    pendiente: false,
+    modulos: [{ clave: "anexo_b", titulo: "Uso de la fuerza" }],
+  },
+  {
+    id: "anexo-c",
+    etiqueta: "ANEXO C",
+    titulo: "ANEXO C. INSPECCIÓN DE VEHÍCULO",
+    pendiente: false,
+    modulos: [{ clave: "inspeccion_vehiculo", titulo: "Datos del vehículo inspeccionado" }],
+  },
+  {
+    id: "anexo-d",
+    etiqueta: "ANEXO D",
+    titulo: "ANEXO D. INVENTARIO DE ARMAS Y OBJETOS",
+    pendiente: false,
+    modulos: [{ clave: "anexo_d", titulo: "Armas y objetos" }],
+  },
+  {
+    id: "anexo-e",
+    etiqueta: "ANEXO E",
+    titulo: "ANEXO E. ENTREVISTAS",
+    pendiente: false,
+    modulos: [{ clave: "anexo_e", titulo: "Entrevistas" }],
+  },
+  {
+    id: "anexo-f",
+    etiqueta: "ANEXO F",
+    titulo: "ANEXO F. ENTREGA - RECEPCIÓN DEL LUGAR DE LA INTERVENCIÓN",
+    pendiente: false,
+    modulos: [{ clave: "anexo_f", titulo: "Entrega - recepción" }],
+  },
+  {
+    id: "bitacora",
+    etiqueta: "BITÁCORA",
+    titulo: "BITÁCORA DE ACTIVIDADES",
+    pendiente: false,
+    modulos: [{ clave: "bitacora", titulo: "Registro de actividad" }],
+  },
 ];
 
-const arbolModulos = [
-  { label: "Etapa 1", items: modulos.slice(0, 4) },
-  { label: "Etapa 2", items: modulos.slice(4, 9) },
-  { label: "Etapa 3", items: modulos.slice(9) },
-];
+const seccionesVisibles = computed(() => secciones.filter((seccion) => {
+  const anexo = seccion.id.match(/^anexo-([a-f])$/i)?.[1]?.toUpperCase();
+  return !anexo || anexosEntregados.value[anexo] === true;
+}));
 
-const modulosCompletados = computed(() => Object.values(estadoModulos.value).filter(Boolean).length);
+const modulosPersonasIndependientes = {
+  denunciante: "Denunciante",
+  ofendido: "Ofendido",
+  victima: "Víctima",
+  testigo: "Testigo",
+};
+
+const seccionActiva = computed(() => {
+  const actual = secciones.find((seccion) => seccion.modulos.some((item) => item.clave === props.modulo));
+  if (actual) return actual;
+  if (modulosPersonasIndependientes[props.modulo]) {
+    return {
+      id: "personas-relacionadas",
+      etiqueta: "PERSONAS",
+      titulo: "PERSONAS RELACIONADAS",
+      pendiente: false,
+      modulos: [{ clave: props.modulo, titulo: modulosPersonasIndependientes[props.modulo] }],
+    };
+  }
+  return secciones.find((seccion) => seccion.id === props.modulo) || secciones[0];
+});
+
+const moduloActivo = computed(() => {
+  if (seccionActiva.value.modulos.some((item) => item.clave === props.modulo)) return props.modulo;
+  return seccionActiva.value.modulos[0]?.clave || null;
+});
+
+const componenteActivo = computed(() => componentesPorModulo[moduloActivo.value] || null);
+const propsFormulario = computed(() => moduloActivo.value === "puesta_disposicion"
+  ? { iph: iph.value }
+  : {});
+const nombreUsuario = computed(() => auth.usuario?.usuario || "—");
+const nombreCompleto = computed(() => auth.usuario?.nombre_completo || auth.usuario?.usuario || "—");
+const adscripcion = computed(() => auth.usuario?.UNDD_DSCRPCION || auth.usuario?.adscripcion || "");
+const puesto = computed(() => auth.usuario?.PUESTO || auth.usuario?.puesto || auth.usuario?.cargo || "");
+const folio = computed(() => iph.value?.folio_interno || iph.value?.IPH || router.currentRoute.value.query.folio_interno || "Sin folio");
+const numeroReferencia = computed(() => iph.value?.no_referencia || iph.value?.numero_referencia || iph.value?.NO_REFERENCIA || iph.value?.NUMERO_REFERENCIA || "—");
+
+function navegarSeccion(seccion) {
+  const destino = seccion.modulos[0]?.clave || seccion.id;
+  router.push({ name: "formulario-iph", params: { id: iphId.value, modulo: destino } });
+}
+
+function navegarModulo(clave) {
+  router.push({ name: "formulario-iph", params: { id: iphId.value, modulo: clave } });
+}
+
+function actualizarAnexosVisibles(entregados) {
+  anexosEntregados.value = entregados;
+  const anexoActual = seccionActiva.value.id.match(/^anexo-([a-f])$/i)?.[1]?.toUpperCase();
+  if (anexoActual && entregados[anexoActual] !== true) {
+    navegarSeccion(secciones[0]);
+  }
+}
+
+function irAlPanel() {
+  router.push({ name: "panel" });
+}
+
+function cerrarSesion() {
+  auth.cerrarSesion();
+  router.push({ name: "login" });
+}
 
 async function cargarIPH() {
   const { data } = await api.get(`/iph/${iphId.value}`);
   iph.value = data;
-  estadoModulos.value = data.estado_modulos || {};
 }
 
 function recargarEstado() {
   cargarIPH();
-}
-
-function navegarModulo(clave) {
-  router.push({
-    name: "formulario-iph",
-    params: { id: iphId.value, modulo: clave },
-  });
-}
-
-function volverAlArbol() {
-  router.push({
-    name: "formulario-iph",
-    params: { id: iphId.value },
-  });
 }
 
 async function exportarPDF() {
@@ -207,7 +357,7 @@ async function exportarPDF() {
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `IPH_${iph.value?.folio_interno}.pdf`);
+    link.setAttribute("download", `IPH_${folio.value}.pdf`);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -216,6 +366,6 @@ async function exportarPDF() {
   }
 }
 
+watch(iphId, cargarIPH);
 onMounted(cargarIPH);
 </script>
-
