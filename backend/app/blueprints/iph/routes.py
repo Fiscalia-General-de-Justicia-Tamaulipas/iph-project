@@ -1,6 +1,6 @@
 from datetime import datetime, date, time as dtime
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, current_app, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy import inspect
 
@@ -27,7 +27,7 @@ from app.services.pdf_generator import generar_pdf_iph
 iph_bp = Blueprint("iph", __name__)
 
 
-def _fetch_all(sql, params=()):
+def _fetch_all(sql, params=(), *, raise_errors=False):
     conn = None
     cursor = None
     try:
@@ -39,6 +39,8 @@ def _fetch_all(sql, params=()):
         columns = [column[0] for column in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
     except Exception:
+        if raise_errors:
+            raise
         return []
     finally:
         if cursor is not None:
@@ -113,7 +115,20 @@ def _normalize_iph_row(row):
         payload["IPH"] = folio
 
     payload["no_expediente"] = payload.get("NUC") or payload.get("NO_EXPEDIENTE") or payload.get("no_expediente")
-    payload["estado"] = payload.get("ESTADO") or payload.get("ESTADO_CARPETA") or payload.get("estado") or "EN_TRAMITE"
+    estados = (
+        "ESTADO",
+        "ESTADO_CARPETA",
+        "ESTADO_IPH",
+        "ESTATUS_IPH",
+        "ESTATUS",
+        "DESCRIPCION_ESTADO_IPH",
+        "ID_ESTADO_IPH",
+        "estado",
+    )
+    payload["estado"] = next(
+        (payload[key] for key in estados if payload.get(key) is not None and payload[key] != ""),
+        "EN_TRAMITE",
+    )
     payload["adscripcion"] = payload.get("UNIDAD") or payload.get("ADSCRIPCION") or payload.get("adscripcion") or ""
     payload["denunciante"] = payload.get("DENUNCIANTE") or payload.get("denunciante") or ""
     payload["imputado"] = payload.get("IMPUTADO") or payload.get("imputado") or ""
@@ -452,51 +467,73 @@ def asignar_campos(instancia, data, modelo):
 @jwt_required()
 def listar_iph():
     usuario_id = get_jwt_identity()
+    claims = get_jwt()
 
-    perfil = None
-    for sql in [
-        "SELECT TOP 1 * FROM cat_usuario WHERE id_usuario = ?",
-        "SELECT TOP 1 * FROM cat_usuario WHERE ID_USUARIO = ?",
-        "SELECT TOP 1 * FROM usuarios WHERE id = ?",
-        "SELECT TOP 1 * FROM usuarios WHERE id_usuario = ?",
-    ]:
-        perfil = _fetch_one(sql, (usuario_id,))
-        if perfil:
-            break
-
-    if not perfil:
-        return jsonify([]), 200
-
-    municipio = _pick_value(
-        perfil,
-        "ID_MNCPIO",
-        "ID_MUNICIPIO",
-        "id_mncpio",
-        "Id_Mncpio",
-        "MNCPIO",
-        "MUNICIPIO",
-    )
-    unidad = _pick_value(
-        perfil,
-        "Id_Undd",
-        "ID_UNDD",
-        "ID_UNIDAD",
-        "id_unidad",
-        "UNIDAD",
-        "Unidad",
-    )
+    municipio = claims.get("id_municipio")
+    if municipio is None:
+        municipio = claims.get("IdMunicipio")
+    unidad = claims.get("id_unidad")
+    if unidad is None:
+        unidad = claims.get("IdUnidad")
 
     if municipio is None or unidad is None:
-        return jsonify([]), 200
+        perfil = None
+        for sql in [
+            "SELECT TOP 1 * FROM cat_usuario WHERE id_usuario = ?",
+            "SELECT TOP 1 * FROM cat_usuario WHERE ID_USUARIO = ?",
+            "SELECT TOP 1 * FROM usuarios WHERE id = ?",
+            "SELECT TOP 1 * FROM usuarios WHERE id_usuario = ?",
+        ]:
+            perfil = _fetch_one(sql, (usuario_id,))
+            if perfil:
+                break
+
+        if perfil:
+            if municipio is None:
+                municipio = _pick_value(
+                    perfil,
+                    "ID_MNCPIO",
+                    "ID_MUNICIPIO",
+                    "id_mncpio",
+                    "Id_Mncpio",
+                    "MNCPIO",
+                    "MUNICIPIO",
+                )
+            if unidad is None:
+                unidad = _pick_value(
+                    perfil,
+                    "Id_Undd",
+                    "ID_UNDD",
+                    "ID_UNIDAD",
+                    "id_unidad",
+                    "UNIDAD",
+                    "Unidad",
+                )
+
+    if municipio is None or unidad is None:
+        return jsonify({
+            "msg": "El usuario autenticado no tiene municipio o unidad asociados."
+        }), 422
 
     registros = []
+    consulta_exitosa = False
     for sql, params in [
         ("EXEC IPH_ConsultaIPH @IdMunicipio = ?, @IdUnidad = ?", (municipio, unidad)),
         ("EXEC IPH_ConsultaIPH @Municipio = ?, @Unidad = ?", (municipio, unidad)),
     ]:
-        registros = _fetch_all(sql, params)
+        try:
+            registros = _fetch_all(sql, params, raise_errors=True)
+            consulta_exitosa = True
+        except Exception:
+            current_app.logger.exception("Falló una variante de IPH_ConsultaIPH")
+            continue
         if registros:
             break
+
+    if not consulta_exitosa:
+        return jsonify({
+            "msg": "No fue posible consultar los IPH. Revisa el registro de errores del backend."
+        }), 503
 
     if not registros:
         return jsonify([]), 200

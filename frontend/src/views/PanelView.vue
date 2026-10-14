@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-[#efefef]">
+  <div class="panel-view min-h-screen bg-[#efefef]">
     <header class="bg-[#575756] text-white shadow-sm border-b border-[#434342]">
       <div class="max-w-7xl mx-auto px-4 py-4 md:px-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -25,7 +25,7 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-4 py-6 md:px-6">
-      <section class="mb-6 grid gap-4 md:grid-cols-3">
+      <section class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div class="rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm">
           <p class="text-xs uppercase tracking-[0.25em] text-[#878787]">Total</p>
           <div class="mt-3 flex items-end justify-between">
@@ -38,6 +38,13 @@
           <div class="mt-3 flex items-end justify-between">
             <span class="text-3xl font-black text-[#2d6d37]">{{ iphsActivas }}</span>
             <span class="rounded-full bg-[#dfeee0] px-2 py-1 text-[10px] font-bold uppercase text-[#2d6d37]">Vigentes</span>
+          </div>
+        </div>
+        <div class="rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm">
+          <p class="text-xs uppercase tracking-[0.25em] text-[#878787]">Terminadas</p>
+          <div class="mt-3 flex items-end justify-between">
+            <span class="text-3xl font-black text-[#575756]">{{ iphsTerminadas }}</span>
+            <span class="rounded-full bg-[#ececec] px-2 py-1 text-[10px] font-bold uppercase text-[#575756]">Concluidas</span>
           </div>
         </div>
         <div class="rounded-2xl border border-[#d9d9d9] bg-white p-4 shadow-sm">
@@ -161,7 +168,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="iph in resultados" :key="iph.id || iph.ID_IPH" class="border-t border-[#ececec] hover:bg-[#f9f9f9]">
+              <tr v-for="iph in resultadosPaginados" :key="iph.id || iph.ID_IPH" class="border-t border-[#ececec] hover:bg-[#f9f9f9]">
                 <td class="px-4 py-3">
                   <button @click="$router.push({ name: 'formulario-iph', params: { id: iph.id || iph.ID_IPH } })" class="rounded-lg border border-[#d0d0d0] bg-white px-2 py-1.5 text-base transition hover:border-[#575756] hover:bg-[#f0f0f0]">
                     👁
@@ -176,17 +183,47 @@
                 <td class="px-4 py-3">
                   <span
                     class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
-                    :class="(iph.estado || iph.ESTADO_CARPETA || 'EN_TRAMITE').toUpperCase() === 'ACTIVA' ? 'bg-[#dfeee0] text-[#2d6d37]' : 'bg-[#f7f0d7] text-[#7a5c00]'"
+                    :class="claseEstado(iph)"
                   >
-                    {{ iph.estado || iph.ESTADO_CARPETA || 'EN_TRAMITE' }}
+                    {{ textoEstado(iph) }}
                   </span>
                 </td>
               </tr>
-              <tr v-if="resultados.length === 0">
+              <tr v-if="errorCarga">
+                <td colspan="8" class="px-4 py-10 text-center text-red-700">{{ errorCarga }}</td>
+              </tr>
+              <tr v-else-if="resultados.length === 0">
                 <td colspan="8" class="px-4 py-10 text-center text-[#575756]">No hay registros para mostrar.</td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="flex flex-col gap-3 border-t border-[#ececec] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-[#575756]">
+            Mostrando {{ resultados.length ? (paginaActual - 1) * registrosPorPagina + 1 : 0 }}–{{ Math.min(paginaActual * registrosPorPagina, resultados.length) }}
+            de {{ resultados.length }} registros
+          </p>
+          <nav v-if="totalPaginas > 1" aria-label="Paginación de registros" class="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              @click="paginaActual--"
+              :disabled="paginaActual === 1"
+              class="rounded-lg border border-[#d0d0d0] bg-white px-3 py-2 text-sm font-semibold text-[#575756] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Anterior
+            </button>
+            <span class="min-w-24 text-center text-sm font-semibold text-[#575756]">
+              Página {{ paginaActual }} de {{ totalPaginas }}
+            </span>
+            <button
+              type="button"
+              @click="paginaActual++"
+              :disabled="paginaActual === totalPaginas"
+              class="rounded-lg border border-[#d0d0d0] bg-white px-3 py-2 text-sm font-semibold text-[#575756] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Siguiente
+            </button>
+          </nav>
         </div>
       </section>
     </main>
@@ -194,7 +231,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "../store/auth";
 import api from "../store/api";
@@ -202,7 +239,10 @@ import api from "../store/api";
 const router = useRouter();
 const auth = useAuthStore();
 const listaIPH = ref([]);
+const errorCarga = ref("");
 const filtroBusqueda = ref("0");
+const registrosPorPagina = 10;
+const paginaActual = ref(1);
 
 const busqueda = ref({
   iph: "",
@@ -228,8 +268,40 @@ const fechaActual = computed(() => new Date().toLocaleDateString("es-MX", {
 }));
 
 const totalRegistros = computed(() => listaIPH.value.length);
-const iphsActivas = computed(() => listaIPH.value.filter((iph) => (iph.estado || iph.ESTADO_CARPETA || "EN_TRAMITE").toUpperCase() === "ACTIVA").length);
-const iphsPendientes = computed(() => listaIPH.value.filter((iph) => (iph.estado || iph.ESTADO_CARPETA || "EN_TRAMITE").toUpperCase() !== "ACTIVA").length);
+const iphsActivas = computed(() => listaIPH.value.filter((iph) => clasificarEstado(iph) === "activa").length);
+const iphsTerminadas = computed(() => listaIPH.value.filter((iph) => clasificarEstado(iph) === "terminada").length);
+const iphsPendientes = computed(() => listaIPH.value.filter((iph) => clasificarEstado(iph) === "pendiente").length);
+
+function valorEstado(iph) {
+  return iph.estado ?? iph.ESTADO_CARPETA ?? iph.ESTADO ?? iph.ESTADO_IPH ?? "";
+}
+
+function textoEstado(iph) {
+  const estado = valorEstado(iph);
+  return estado === "" ? "Sin estado" : String(estado);
+}
+
+function clasificarEstado(iph) {
+  const estado = textoEstado(iph)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (["ACTIVA", "ACTIVO", "VIGENTE", "VIGENTES"].includes(estado)) return "activa";
+  if (["TERMINADA", "TERMINADO", "COMPLETADA", "COMPLETADO", "COMPLETA", "COMPLETO", "CONCLUIDA", "CONCLUIDO", "FINALIZADA", "FINALIZADO", "CERRADA", "CERRADO"].includes(estado)) return "terminada";
+  if (["PENDIENTE", "PENDIENTES", "EN_TRAMITE", "TRAMITE", "EN_PROCESO", "EN_CAPTURA", "CAPTURA", "POR_REVISAR"].includes(estado)) return "pendiente";
+  return "sin-clasificar";
+}
+
+function claseEstado(iph) {
+  const estado = clasificarEstado(iph);
+  if (estado === "activa") return "bg-[#dfeee0] text-[#2d6d37]";
+  if (estado === "terminada") return "bg-[#ececec] text-[#575756]";
+  if (estado === "pendiente") return "bg-[#f7f0d7] text-[#7a5c00]";
+  return "bg-[#ededed] text-[#575756]";
+}
 
 function formatearFecha(valor) {
   if (!valor) return "—";
@@ -284,13 +356,32 @@ const resultados = computed(() => {
   });
 });
 
+const totalPaginas = computed(() => Math.max(1, Math.ceil(resultados.value.length / registrosPorPagina)));
+const resultadosPaginados = computed(() => {
+  const inicio = (paginaActual.value - 1) * registrosPorPagina;
+  return resultados.value.slice(inicio, inicio + registrosPorPagina);
+});
+
+watch(resultados, () => {
+  paginaActual.value = 1;
+});
+
+watch(totalPaginas, (total) => {
+  if (paginaActual.value > total) paginaActual.value = total;
+});
+
 async function cargarIPH() {
+  errorCarga.value = "";
   try {
     const { data } = await api.get("/iph/");
+    if (!Array.isArray(data)) {
+      throw new Error(data?.msg || "La respuesta del servidor no tiene el formato esperado.");
+    }
     listaIPH.value = Array.isArray(data) ? data : [];
   } catch (error) {
     console.error("No fue posible cargar IPH:", error);
     listaIPH.value = [];
+    errorCarga.value = error.response?.data?.msg || error.message || "No fue posible cargar los IPH.";
   }
 }
 
