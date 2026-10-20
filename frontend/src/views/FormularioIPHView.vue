@@ -25,13 +25,26 @@
           :key="seccion.id"
           type="button"
           class="iph-nav-item"
-          :class="{ 'is-active': seccionActiva.id === seccion.id }"
+          :class="{
+            'is-active': seccionActiva.id === seccion.id,
+            'is-section-two': seccion.id === 'seccion-2',
+            'is-section-three': seccion.id === 'seccion-3',
+          }"
           :aria-current="seccionActiva.id === seccion.id ? 'page' : undefined"
           :style="{ '--sidebar-order': index }"
           @click="navegarSeccion(seccion)"
         >
           <span class="iph-nav-icon" aria-hidden="true">{{ seccion.pendiente ? "◉" : "♟" }}</span>
-          {{ seccion.etiqueta }}
+          <span class="iph-nav-copy">
+            <span class="iph-nav-label">{{ seccion.etiqueta }}</span>
+            <small>{{ seccion.subtitulo }}</small>
+          </span>
+          <span
+            v-if="seccionCompletada(seccion)"
+            class="iph-nav-complete"
+            :aria-label="`${seccion.etiqueta} completada`"
+            title="Sección guardada"
+          >✓</span>
         </button>
       </TransitionGroup>
 
@@ -76,7 +89,7 @@
 
           <div v-if="seccionActiva.modulos.length" class="iph-section-content">
             <nav
-              v-if="seccionActiva.id !== 'seccion-1'"
+              v-if="seccionActiva.modulos.length > 1"
               class="iph-module-tabs"
               :aria-label="`Formularios de ${seccionActiva.etiqueta}`"
             >
@@ -98,9 +111,9 @@
               :iph-id="iphId"
               v-bind="propsFormulario"
               :tipo="moduloActivo"
-              @guardado="recargarEstado"
+              @guardado="marcarModuloCompletado"
               @cancelar="irAlPanel"
-              @siguiente="navegarSeccion(secciones[1])"
+              @siguiente="marcarYAvanzar"
               @anexos-actualizados="actualizarAnexosVisibles"
             />
             <p v-else class="iph-empty-state">Selecciona un formulario para continuar.</p>
@@ -150,6 +163,7 @@ const iphId = computed(() => props.id);
 const iph = ref(null);
 const exportando = ref(false);
 const anexosEntregados = ref({});
+const modulosCompletados = ref(new Set());
 
 const componentesPorModulo = {
   puesta_disposicion: PuestaDisposicionForm,
@@ -179,6 +193,7 @@ const secciones = [
   {
     id: "seccion-1",
     etiqueta: "SECCIÓN 1",
+    subtitulo: "Puesta a disposición",
     titulo: "SECCIÓN 1. PUESTA A DISPOSICIÓN",
     pendiente: false,
     modulos: [{ clave: "puesta_disposicion", titulo: "Puesta a disposición" }],
@@ -186,6 +201,7 @@ const secciones = [
   {
     id: "seccion-2",
     etiqueta: "SECCIÓN 2",
+    subtitulo: "Primer respondiente",
     titulo: "SECCIÓN 2. PRIMER RESPONDIENTE",
     pendiente: false,
     modulos: [{ clave: "policias", titulo: "Datos del primer respondiente" }],
@@ -193,6 +209,7 @@ const secciones = [
   {
     id: "seccion-3",
     etiqueta: "SECCIÓN 3",
+    subtitulo: "Conocimiento del hecho",
     titulo: "SECCIÓN 3. CONOCIMIENTO DEL HECHO Y SEGUIMIENTO DE LA ACTUACIÓN DE LA AUTORIDAD",
     pendiente: false,
     modulos: [
@@ -205,6 +222,7 @@ const secciones = [
   {
     id: "seccion-4",
     etiqueta: "SECCIÓN 4",
+    subtitulo: "Lugar de la intervención",
     titulo: "SECCIÓN 4. LUGAR DE LA INTERVENCIÓN",
     pendiente: false,
     modulos: [
@@ -214,6 +232,7 @@ const secciones = [
   {
     id: "seccion-5",
     etiqueta: "SECCIÓN 5",
+    subtitulo: "Narrativa de los hechos",
     titulo: "SECCIÓN 5. NARRATIVA DE LOS HECHOS",
     pendiente: false,
     modulos: [{ clave: "narracion_primer_respondiente", titulo: "Narrativa y delitos" }],
@@ -221,6 +240,7 @@ const secciones = [
   {
     id: "anexo-a",
     etiqueta: "ANEXO A",
+    subtitulo: "Detención(es)",
     titulo: "ANEXO A. DETENCIÓN(ES)",
     pendiente: false,
     modulos: [
@@ -231,6 +251,7 @@ const secciones = [
   {
     id: "anexo-b",
     etiqueta: "ANEXO B",
+    subtitulo: "Uso de la fuerza",
     titulo: "ANEXO B. INFORME DEL USO DE LA FUERZA",
     pendiente: false,
     modulos: [{ clave: "anexo_b", titulo: "Uso de la fuerza" }],
@@ -238,6 +259,7 @@ const secciones = [
   {
     id: "anexo-c",
     etiqueta: "ANEXO C",
+    subtitulo: "Inspección de vehículo",
     titulo: "ANEXO C. INSPECCIÓN DE VEHÍCULO",
     pendiente: false,
     modulos: [{ clave: "inspeccion_vehiculo", titulo: "Datos del vehículo inspeccionado" }],
@@ -245,6 +267,7 @@ const secciones = [
   {
     id: "anexo-d",
     etiqueta: "ANEXO D",
+    subtitulo: "Inventario de armas y objetos",
     titulo: "ANEXO D. INVENTARIO DE ARMAS Y OBJETOS",
     pendiente: false,
     modulos: [{ clave: "anexo_d", titulo: "Armas y objetos" }],
@@ -252,6 +275,7 @@ const secciones = [
   {
     id: "anexo-e",
     etiqueta: "ANEXO E",
+    subtitulo: "Entrevistas",
     titulo: "ANEXO E. ENTREVISTAS",
     pendiente: false,
     modulos: [{ clave: "anexo_e", titulo: "Entrevistas" }],
@@ -259,6 +283,7 @@ const secciones = [
   {
     id: "anexo-f",
     etiqueta: "ANEXO F",
+    subtitulo: "Entrega y recepción del lugar",
     titulo: "ANEXO F. ENTREGA - RECEPCIÓN DEL LUGAR DE LA INTERVENCIÓN",
     pendiente: false,
     modulos: [{ clave: "anexo_f", titulo: "Entrega - recepción" }],
@@ -266,6 +291,7 @@ const secciones = [
   {
     id: "bitacora",
     etiqueta: "BITÁCORA",
+    subtitulo: "Registro de actividades",
     titulo: "BITÁCORA DE ACTIVIDADES",
     pendiente: false,
     modulos: [{ clave: "bitacora", titulo: "Registro de actividad" }],
@@ -320,6 +346,32 @@ function navegarSeccion(seccion) {
   router.push({ name: "formulario-iph", params: { id: iphId.value, modulo: destino } });
 }
 
+function avanzarSeccion() {
+  const indiceActual = seccionesVisibles.value.findIndex((seccion) => seccion.id === seccionActiva.value.id);
+  if (indiceActual < 0) return;
+  const siguiente = seccionesVisibles.value[indiceActual + 1];
+  if (siguiente) navegarSeccion(siguiente);
+}
+
+function seccionCompletada(seccion) {
+  return seccion.modulos.length > 0 &&
+    seccion.modulos.every((item) => modulosCompletados.value.has(item.clave));
+}
+
+function marcarModuloCompletado() {
+  if (moduloActivo.value) {
+    modulosCompletados.value = new Set(modulosCompletados.value).add(moduloActivo.value);
+  }
+  recargarEstado();
+}
+
+function marcarYAvanzar() {
+  if (moduloActivo.value) {
+    modulosCompletados.value = new Set(modulosCompletados.value).add(moduloActivo.value);
+  }
+  avanzarSeccion();
+}
+
 function navegarModulo(clave) {
   router.push({ name: "formulario-iph", params: { id: iphId.value, modulo: clave } });
 }
@@ -366,6 +418,9 @@ async function exportarPDF() {
   }
 }
 
-watch(iphId, cargarIPH);
+watch(iphId, (nuevoId, idAnterior) => {
+  if (nuevoId !== idAnterior) modulosCompletados.value = new Set();
+  cargarIPH();
+});
 onMounted(cargarIPH);
 </script>
