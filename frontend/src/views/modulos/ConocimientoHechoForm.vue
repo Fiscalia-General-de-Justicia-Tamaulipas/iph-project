@@ -1,102 +1,68 @@
 <template>
-  <div class="form-shell form-card max-w-5xl">
-    <div class="form-header">
-      <div>
-        <p class="eyebrow">Módulo inicial</p>
-        <h2>Conocimiento de Hecho</h2>
-      </div>
-      <div class="status-pill">
-        <span class="status-dot"></span>
-        Activo
-      </div>
-    </div>
+  <div class="conocimiento-form">
+    <form @submit.prevent="guardar">
+      <h2 class="conocimiento-subheading">Apartado 3.1 Conocimiento del hecho por el primer respondiente</h2>
 
-    <form @submit.prevent="guardar" class="form-grid">
-      <div class="field field-wide">
-        <label>INSTITUCIÓN / UNIDAD QUE INFORMA</label>
-        <select v-model="form.id_institucion_informante">
-          <option value="">--SELECCIONE--</option>
-          <option value="1">Policía Ministerial</option>
-          <option value="2">Fiscalía</option>
-          <option value="3">Agencia Ministerial</option>
-          <option value="4">Otra institución</option>
-        </select>
-      </div>
+      <div class="conocimiento-intake-grid">
+        <div class="conocimiento-field">
+          <label for="conocimiento-medio">¿Cómo se enteró del hecho?</label>
+          <select id="conocimiento-medio" v-model="form.como_se_entero">
+            <option value="">--SELECCIONE--</option>
+            <option value="denuncia">DENUNCIA</option>
+            <option value="llamada_emergencia">LLAMADA DE EMERGENCIA</option>
+            <option value="flagrancia">FLAGRANCIA</option>
+            <option value="descubrimiento">DESCUBRIMIENTO</option>
+            <option value="localizacion">LOCALIZACIÓN</option>
+            <option value="aportacion">APORTACIÓN</option>
+            <option value="mandamiento_judicial">MANDAMIENTO JUDICIAL</option>
+          </select>
+        </div>
 
-      <div class="field">
-        <label>FECHA DEL CONOCIMIENTO</label>
-        <input v-model="form.fecha_conocimiento" type="date" />
+        <div v-if="form.como_se_entero === 'llamada_emergencia'" class="conocimiento-field">
+          <label for="conocimiento-911">911 No.</label>
+          <input id="conocimiento-911" v-model="form.numero_911" type="text" />
+        </div>
       </div>
 
-      <div class="field">
-        <label>HORA DEL CONOCIMIENTO</label>
-        <input v-model="form.hora_conocimiento" type="time" />
+      <div class="conocimiento-times">
+        <div class="conocimiento-time-fields">
+          <div class="conocimiento-field">
+            <label for="conocimiento-fecha">Fecha de conocimiento</label>
+            <input id="conocimiento-fecha" v-model="form.fecha_conocimiento" type="date" />
+          </div>
+          <div class="conocimiento-field">
+            <label for="conocimiento-hora">Hora</label>
+            <input id="conocimiento-hora" v-model="form.hora_conocimiento" type="time" />
+            <small>(24 horas)</small>
+          </div>
+        </div>
+
+        <fieldset class="conocimiento-arrival">
+          <legend>Arribo al Lugar</legend>
+          <div class="conocimiento-field">
+            <label for="arribo-fecha">Fecha:</label>
+            <input id="arribo-fecha" v-model="form.fecha_arribo" type="date" />
+          </div>
+          <div class="conocimiento-field">
+            <label for="arribo-hora">Hora:</label>
+            <input id="arribo-hora" v-model="form.hora_arribo" type="time" />
+            <small>(24 horas)</small>
+          </div>
+        </fieldset>
       </div>
 
-      <div class="field">
-        <label>CARGO O AUTORIDAD</label>
-        <select v-model="form.id_cargo">
-          <option value="">--SELECCIONE--</option>
-          <option value="8">Policía Investigador</option>
-          <option value="16">Comandante</option>
-          <option value="20">Agente de policía</option>
-          <option value="21">Fiscal</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>ESTADO</label>
-        <select v-model="form.id_estado">
-          <option value="">--SELECCIONE--</option>
-          <option value="28">Tamaulipas</option>
-          <option value="1">Aguascalientes</option>
-          <option value="29">Veracruz</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label>MUNICIPIO</label>
-        <select v-model="form.id_municipio">
-          <option value="">--SELECCIONE--</option>
-          <option value="41">Victoria</option>
-          <option value="42">Ciudad Mante</option>
-          <option value="43">Matamoros</option>
-        </select>
-      </div>
-
-      <div class="field field-wide">
-        <label>¿CÓMO SE ENTERÓ DEL HECHO?</label>
-        <select v-model="form.como_se_entero">
-          <option value="">Selecciona una opción</option>
-          <option value="denuncia">Denuncia</option>
-          <option value="flagrancia">Flagrancia</option>
-          <option value="localizacion">Localización</option>
-          <option value="mandamiento_judicial">Mandamiento judicial</option>
-          <option value="llamada_emergencia">Llamada de emergencia</option>
-          <option value="descubrimiento">Descubrimiento</option>
-          <option value="aportacion">Aportación</option>
-        </select>
-      </div>
-
-      <div v-if="form.como_se_entero === 'llamada_emergencia'" class="field field-wide">
-        <label>NO. 911</label>
-        <input v-model="form.numero_911" />
-      </div>
-
-      <div class="field">
-        <label>FECHA DE ARRIBO</label>
-        <input v-model="form.fecha_arribo" type="date" />
-      </div>
-
-      <div class="field">
-        <label>HORA DE ARRIBO</label>
-        <input v-model="form.hora_arribo" type="time" />
-      </div>
-
-      <div class="actions-row">
-        <button type="button" class="secondary-btn" @click="$emit('cancelar')">Cancelar</button>
-        <button type="submit" :disabled="guardando" class="primary-btn">
-          {{ guardando ? "Guardando..." : "Guardar" }}
+      <div class="conocimiento-actions">
+        <button type="submit" :disabled="guardando" class="conocimiento-save">
+          {{ guardando ? "GUARDANDO..." : "GUARDAR SECCIÓN" }}
+        </button>
+        <button
+          type="button"
+          class="conocimiento-next"
+          aria-label="Guardar y continuar a la siguiente sección"
+          :disabled="guardando"
+          @click="guardarYContinuar"
+        >
+          <span aria-hidden="true">➜</span>
         </button>
       </div>
     </form>
@@ -110,7 +76,7 @@ import api from "../../store/api";
 
 const auth = useAuthStore();
 const props = defineProps({ iphId: { type: [String, Number], required: true } });
-const emit = defineEmits(["guardado", "cancelar"]);
+const emit = defineEmits(["guardado", "cancelar", "siguiente"]);
 
 const form = ref({
   id_institucion_informante: "",
@@ -166,5 +132,162 @@ async function guardar() {
   }
 }
 
+async function guardarYContinuar() {
+  await guardar();
+  emit("siguiente");
+}
+
 onMounted(cargar);
 </script>
+
+<style scoped>
+.conocimiento-form {
+  width: 100%;
+  color: #303030;
+  font-family: Arial, sans-serif;
+}
+
+.conocimiento-form form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.conocimiento-subheading {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #d8d8d8;
+  background: #f2f2f2;
+  color: #454545;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.conocimiento-intake-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: end;
+  padding: 0 0.7rem 0.55rem;
+  border-bottom: 1px solid #dedede;
+}
+
+.conocimiento-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.conocimiento-field label {
+  color: #333;
+  font-size: 0.68rem;
+}
+
+.conocimiento-field input,
+.conocimiento-field select {
+  width: 100%;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #cfcfcf;
+  border-radius: 3px;
+  background: #fff;
+  color: #343434;
+  font-size: 0.75rem;
+}
+
+.conocimiento-field small {
+  color: #555;
+  font-size: 0.62rem;
+}
+
+.conocimiento-times {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: center;
+  padding: 1rem 0.7rem 0.55rem;
+}
+
+.conocimiento-time-fields {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.5rem;
+}
+
+.conocimiento-arrival {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.55rem;
+  border: 1px solid #dedede;
+  border-radius: 3px;
+}
+
+.conocimiento-arrival legend {
+  width: 100%;
+  padding: 0.35rem;
+  border: 1px solid #dedede;
+  background: #f2f2f2;
+  color: #303030;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.conocimiento-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2rem, 9vw, 8rem);
+  padding: 0.4rem 0 0.2rem;
+}
+
+.conocimiento-save {
+  min-height: 2rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #575756;
+  border-radius: 3px;
+  background: #575756;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.conocimiento-save:hover:not(:disabled) {
+  background: #434342;
+}
+
+.conocimiento-next {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #666666;
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.conocimiento-save:disabled,
+.conocimiento-next:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+@media (max-width: 650px) {
+  .conocimiento-intake-grid,
+  .conocimiento-times {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .conocimiento-times {
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+  }
+
+  .conocimiento-actions {
+    justify-content: space-around;
+    gap: 1rem;
+  }
+}
+</style>
