@@ -188,18 +188,18 @@
         </thead>
         <tbody>
           <tr v-for="archivo in archivos" :key="archivo.id">
-            <td>{{ archivo.file.name }}</td>
-            <td>{{ archivo.file.type || extension(archivo.file.name) }}</td>
+            <td>{{ archivo.name }}</td>
+            <td>{{ archivo.type || extension(archivo.name) }}</td>
             <td><button type="button" class="disposicion-text-button" @click="eliminarArchivo(archivo.id)">Eliminar</button></td>
             <td><button type="button" class="disposicion-text-button" @click="descargarArchivo(archivo)">Descargar</button></td>
           </tr>
-          <tr v-if="!archivos.length"><td colspan="4">No se ha cargado un archivo en esta sesión.</td></tr>
+          <tr v-if="!archivos.length"><td colspan="4">No se han cargado archivos para este IPH.</td></tr>
         </tbody>
       </table>
     </section>
 
     <p class="disposicion-test-note">
-      Modo de prueba: los campos se guardan en este navegador. Los archivos solo permanecen mientras esta pantalla esté abierta.
+      Los avances y archivos se guardan en el servidor y quedan asociados a este IPH.
     </p>
     <p v-if="mensaje" class="disposicion-success" role="status">{{ mensaje }}</p>
     <p v-if="errorGuardado" class="disposicion-error" role="alert">{{ errorGuardado }}</p>
@@ -215,6 +215,8 @@
 
 <script setup>
 import { onMounted, ref, watch } from "vue";
+import { leerCaptura, guardarCaptura } from "../../store/capturas";
+import { eliminarAdjunto, guardarAdjunto, listarAdjuntos, obtenerAdjunto } from "../../store/attachments";
 
 const props = defineProps({
   iphId: { type: [String, Number], required: true },
@@ -304,18 +306,17 @@ function normalizarCadena() {
   }
 }
 
-function cargarBorrador() {
+async function cargarBorrador() {
   errorGuardado.value = "";
-  let guardado;
   try {
-    guardado = localStorage.getItem(claveBorrador());
-    if (guardado === null) {
+    const datos = await leerCaptura(props.iphId, "puesta_disposicion", claveBorrador());
+    if (datos == null) {
       form.value = crearBorrador();
       avancesGuardados.value = false;
       notificarAnexos();
+      archivos.value = await listarAdjuntos(props.iphId, "puesta_disposicion");
       return;
     }
-    const datos = JSON.parse(guardado);
     if (!datos || typeof datos !== "object" || Array.isArray(datos)) {
       throw new Error("El borrador guardado no tiene un formato válido.");
     }
@@ -332,28 +333,30 @@ function cargarBorrador() {
     notificarAnexos();
   } catch (error) {
     avancesGuardados.value = false;
-    errorGuardado.value = `No se pudo cargar el borrador local: ${error.message}`;
+    errorGuardado.value = error.response?.data?.msg || `No se pudo cargar la captura del servidor: ${error.message}`;
   }
+  try { archivos.value = await listarAdjuntos(props.iphId, "puesta_disposicion"); }
+  catch (error) { errorArchivo.value = error.response?.data?.msg || "No se pudieron cargar los archivos del servidor."; }
 }
 
-function guardar() {
+async function guardar() {
   errorGuardado.value = "";
   mensaje.value = "";
   try {
-    localStorage.setItem(claveBorrador(), JSON.stringify(form.value));
+    await guardarCaptura(props.iphId, "puesta_disposicion", form.value);
     avancesGuardados.value = true;
-    mensaje.value = "Avances guardados en este navegador.";
+    mensaje.value = "Avances guardados en el servidor.";
     return true;
   } catch (error) {
     avancesGuardados.value = false;
-    errorGuardado.value = `No se pudieron guardar los avances: ${error.message}`;
+    errorGuardado.value = error.response?.data?.msg || `No se pudieron guardar los avances: ${error.message}`;
     return false;
   }
 }
 
-function guardarYSiguiente() {
+async function guardarYSiguiente() {
   if (!formulario.value?.reportValidity()) return;
-  if (guardar()) emit("siguiente");
+  if (await guardar()) emit("siguiente");
 }
 
 function actualizarAnexos() {
@@ -370,7 +373,7 @@ function actualizarCadena(clave, valorSeleccionado) {
   notificarAnexos();
 }
 
-function agregarArchivo(event) {
+async function agregarArchivo(event) {
   errorArchivo.value = "";
   const seleccionados = Array.from(event.target.files || []);
   for (const file of seleccionados) {
@@ -378,22 +381,34 @@ function agregarArchivo(event) {
       errorArchivo.value = `${file.name} excede el tamaño máximo de 50 MB.`;
       continue;
     }
-    archivos.value.push({ id: `${Date.now()}-${Math.random()}`, file });
+    try {
+      const id = `${props.iphId}-P-${Date.now()}-${Math.random()}`;
+      await guardarAdjunto({ id, iphId: props.iphId, anexo: "puesta_disposicion", file });
+      archivos.value = await listarAdjuntos(props.iphId, "puesta_disposicion");
+    } catch (error) {
+      errorArchivo.value = error.response?.data?.msg || `No se pudo guardar ${file.name} en el servidor.`;
+    }
   }
   event.target.value = "";
 }
 
-function eliminarArchivo(id) {
-  archivos.value = archivos.value.filter((archivo) => archivo.id !== id);
+async function eliminarArchivo(id) {
+  try {
+    await eliminarAdjunto(id, props.iphId);
+    archivos.value = await listarAdjuntos(props.iphId, "puesta_disposicion");
+  } catch (error) { errorArchivo.value = error.response?.data?.msg || "No se pudo eliminar el archivo del servidor."; }
 }
 
-function descargarArchivo(archivo) {
-  const url = URL.createObjectURL(archivo.file);
+async function descargarArchivo(archivo) {
+  try {
+  const descargado = await obtenerAdjunto(archivo.id, props.iphId);
+  const url = URL.createObjectURL(descargado.blob);
   const enlace = document.createElement("a");
   enlace.href = url;
-  enlace.download = archivo.file.name;
+  enlace.download = archivo.name;
   enlace.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { errorArchivo.value = error.response?.data?.msg || "No se pudo descargar el archivo del servidor."; }
 }
 
 function extension(nombre) {

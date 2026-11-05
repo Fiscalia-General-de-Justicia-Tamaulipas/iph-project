@@ -25,8 +25,9 @@ ESTADOS_IPH = ("EN_TRAMITE", "ACTIVA", "CERRADA", "CANCELADA")
 class IPH(db.Model):
     """Registro principal del Informe Policial Homologado (folio)."""
     __tablename__ = "iph"
+    __table_args__ = {"schema": "dbo"}
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column("ID_IPH", db.Integer, primary_key=True)
     folio_interno = db.Column(db.String(50), unique=True, nullable=False)
     no_referencia = db.Column(db.String(50))       # EDO-INST-GOB-MPIO-DD-MM-AAAA-HH-MM
     no_expediente = db.Column(db.String(80))
@@ -84,7 +85,7 @@ class ConocimientoHecho(db.Model):
     __tablename__ = "conocimiento_hecho"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     # Legacy aliases used by the old ASPX code-behind
     id_institucion_informante = db.Column(db.Integer)
@@ -110,7 +111,7 @@ class ActaNoticia(db.Model):
     __tablename__ = "acta_noticia"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     # Legacy ASPX contract: acta de noticia del hecho
     tipo_evento = db.Column(db.String(120))
@@ -148,7 +149,7 @@ class AccionRealizada(db.Model):
     __tablename__ = "acciones_realizadas"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     orden = db.Column(db.Integer, default=1)
     descripcion = db.Column(db.Text, nullable=False)
@@ -201,7 +202,7 @@ class _PersonaBase:
 class Denunciante(db.Model, _PersonaBase):
     __tablename__ = "denunciantes"
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
     relato = db.Column(db.Text)
     iph = db.relationship("IPH", back_populates="denunciantes")
 
@@ -209,7 +210,7 @@ class Denunciante(db.Model, _PersonaBase):
 class Ofendido(db.Model, _PersonaBase):
     __tablename__ = "ofendidos"
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
     relato = db.Column(db.Text)
     iph = db.relationship("IPH", back_populates="ofendidos")
 
@@ -217,7 +218,7 @@ class Ofendido(db.Model, _PersonaBase):
 class Victima(db.Model, _PersonaBase):
     __tablename__ = "victimas"
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
     lesiones_visibles = db.Column(db.Boolean, default=False)
     grupo_vulnerable = db.Column(db.Boolean, default=False)
     cual_grupo_vulnerable = db.Column(db.String(150))
@@ -230,7 +231,7 @@ class PolicíaActuante(db.Model):
     __tablename__ = "policias_actuantes"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     # Legacy ASPX / code-behind names
     nombre = db.Column(db.String(150))
@@ -257,7 +258,7 @@ class Imputado(db.Model):
     __tablename__ = "imputados"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     numero_detencion_rnd = db.Column(db.String(20))
     primer_apellido = db.Column(db.String(100))
@@ -300,7 +301,7 @@ class Imputado(db.Model):
 class Testigo(db.Model, _PersonaBase):
     __tablename__ = "testigos"
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
     relato = db.Column(db.Text)
     iph = db.relationship("IPH", back_populates="testigos")
 
@@ -310,7 +311,7 @@ class InspeccionLugar(db.Model):
     __tablename__ = "inspecciones_lugar"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     fecha_inspeccion = db.Column(db.Date)
     hora_inspeccion = db.Column(db.String(10))
@@ -350,7 +351,7 @@ class InspeccionPersona(db.Model):
     __tablename__ = "inspecciones_persona"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
     imputado_id = db.Column(db.Integer, db.ForeignKey("imputados.id"))
     id_imputado = db.Column(db.Integer)
     id_persona = db.Column(db.Integer)
@@ -372,7 +373,7 @@ class InspeccionVehiculo(db.Model):
     __tablename__ = "inspecciones_vehiculo"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     numero_accidente = db.Column(db.String(50))
     tipo = db.Column(db.String(50))
@@ -421,7 +422,7 @@ class NarracionPrimerRespondiente(db.Model):
     __tablename__ = "narracion_primer_respondiente"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     narrativa = db.Column(db.Text, nullable=False)
     continua_en_anexo_g = db.Column(db.Boolean, default=False)
@@ -434,7 +435,7 @@ class Actuacion(db.Model):
     __tablename__ = "actuaciones"
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(db.Integer, db.ForeignKey("iph.id"), nullable=False)
+    iph_id = db.Column(db.Integer, db.ForeignKey("dbo.iph.ID_IPH"), nullable=False)
 
     tipo_actuacion = db.Column(db.String(100))
     descripcion = db.Column(db.Text)
@@ -443,3 +444,48 @@ class Actuacion(db.Model):
     hora = db.Column(db.Time)
 
     iph = db.relationship("IPH", back_populates="actuaciones")
+
+
+class IPHCaptura(db.Model):
+    """Payload JSON de captura; requiere la migración SQL Server de iph_capturas_web."""
+    __tablename__ = "iph_capturas_web"
+    __table_args__ = (
+        db.UniqueConstraint("iph_id", "pantalla", name="uq_iph_captura_pantalla"),
+        {"schema": "dbo"},
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    iph_id = db.Column(
+        db.Integer,
+        db.ForeignKey("dbo.iph.ID_IPH", name="FK_iph_capturas_web_iph"),
+        nullable=False,
+        index=True,
+    )
+    pantalla = db.Column(db.String(80), nullable=False)
+    datos_json = db.Column(db.Text, nullable=False)
+    actualizado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IPHEstadoWeb(db.Model):
+    """Estado de flujo web, separado del código de estado del sistema legacy."""
+    __tablename__ = "iph_estado_web"
+    __table_args__ = {"schema": "dbo"}
+
+    iph_id = db.Column(db.Integer, primary_key=True)
+    estado = db.Column(db.String(20), nullable=False, default="EN_TRAMITE")
+    actualizado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IPHAdjunto(db.Model):
+    """Adjunto asociado a un IPH, almacenado en SQL Server para compartirlo entre equipos."""
+    __tablename__ = "iph_adjuntos_web"
+    __table_args__ = {"schema": "dbo"}
+
+    id = db.Column(db.String(100), primary_key=True)
+    iph_id = db.Column(db.Integer, nullable=False, index=True)
+    anexo = db.Column(db.String(80), nullable=False)
+    nombre = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(100), nullable=False)
+    tamano = db.Column(db.BigInteger, nullable=False)
+    contenido = db.Column(db.LargeBinary, nullable=False)
+    creado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)

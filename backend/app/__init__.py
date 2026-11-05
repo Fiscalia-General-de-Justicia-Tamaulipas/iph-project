@@ -1,4 +1,5 @@
-from flask import Flask
+from flask import Flask, jsonify
+from werkzeug.exceptions import RequestEntityTooLarge
 from app.config import config_by_name
 from app.extensions import db, migrate, jwt, cors, bcrypt
 import os
@@ -8,6 +9,10 @@ def create_app(config_name=None):
     config_name = config_name or os.getenv("FLASK_ENV", "production")
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def archivo_demasiado_grande(_error):
+        return jsonify({"msg": "La solicitud supera el límite de 50 MB por archivo."}), 413
 
     # Inicializar extensiones
     db.init_app(app)

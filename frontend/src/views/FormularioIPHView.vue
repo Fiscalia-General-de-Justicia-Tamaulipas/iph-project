@@ -58,27 +58,56 @@
             <span class="iph-reference-label">Número de referencia</span>
             <strong>{{ numeroReferencia }}</strong>
           </div>
-          <button
-            v-if="seccionActiva.id === 'seccion-1'"
-            type="button"
-            class="iph-primary-button"
-            disabled
-            title="El flujo de supervisión aún no está integrado."
-          >
-            PARA SUPERVISAR
-          </button>
-          <button
-            v-else
-            type="button"
-            class="iph-primary-button"
-            :disabled="exportando"
-            @click="exportarPDF"
-          >
-            {{ exportando ? "GENERANDO..." : "EXPORTAR PDF" }}
-          </button>
+          <div class="iph-reference-actions">
+            <button
+              type="button"
+              class="iph-preview-button"
+              :disabled="previsualizandoPantalla"
+              @click="previsualizarPantalla"
+            >
+              {{ previsualizandoPantalla ? "GENERANDO VISTA PREVIA..." : "VISTA PREVIA PDF" }}
+            </button>
+            <button
+              v-if="iph?.estado === 'ACTIVA'"
+              type="button"
+              class="iph-finish-button"
+              :disabled="finalizando"
+              @click="finalizarIPH"
+            >
+              {{ finalizando ? "FINALIZANDO..." : "FINALIZAR IPH" }}
+            </button>
+            <button
+              v-if="seccionActiva.id === 'seccion-1'"
+              type="button"
+              class="iph-primary-button"
+              disabled
+              title="El flujo de supervisión aún no está integrado."
+            >
+              PARA SUPERVISAR
+            </button>
+            <button
+              v-else
+              type="button"
+              class="iph-primary-button"
+              :disabled="exportando || vistaPreviaCargando"
+              @click="exportarPDF"
+            >
+              {{
+                exportando
+                  ? "GENERANDO..."
+                  : iph?.estado === "TERMINADA"
+                    ? "EXPORTAR PDF FINAL"
+                    : "EXPORTAR VISTA PREVIA"
+              }}
+            </button>
+            <p v-if="errorVistaPrevia" class="iph-preview-error" role="alert">
+              {{ errorVistaPrevia }}
+            </p>
+          </div>
         </section>
 
         <section class="iph-section-card">
+          <p v-if="errorEstado" class="test-module-error" role="alert">{{ errorEstado }}</p>
           <header class="iph-section-heading">
             <div>
               <p>Campo obligatorio*</p>
@@ -87,7 +116,13 @@
             <span v-if="seccionActiva.pendiente" class="iph-pending-badge">Pendiente de integrar</span>
           </header>
 
-          <div v-if="seccionActiva.modulos.length" class="iph-section-content">
+          <div
+            v-if="seccionActiva.modulos.length"
+            class="iph-section-content"
+            @input="actualizarCamposVistaPrevia"
+            @change="actualizarCamposVistaPrevia"
+            @click="capturarDespuesDeAccion"
+          >
             <nav
               v-if="seccionActiva.modulos.length > 1"
               class="iph-module-tabs"
@@ -128,13 +163,31 @@
             </p>
           </div>
         </section>
+
+        <section class="iph-preview-card" aria-labelledby="iph-preview-title">
+          <header>
+            <div>
+              <p>Actualizada durante la captura</p>
+              <h2 id="iph-preview-title">Vista previa del PDF</h2>
+            </div>
+            <span v-if="vistaPreviaCargando" role="status">Actualizando...</span>
+          </header>
+          <p v-if="errorVistaPrevia" class="test-module-error" role="alert">{{ errorVistaPrevia }}</p>
+          <iframe
+            v-if="pdfPreviewUrl"
+            :key="pdfPreviewRevision"
+            :src="pdfPreviewUrl"
+            title="Vista previa del Informe Policial Homologado"
+          />
+          <p v-else class="iph-preview-empty">La vista previa aparecerá aquí al cargar el IPH.</p>
+        </section>
       </main>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import api from "../store/api";
 import { useAuthStore } from "../store/auth";
@@ -147,9 +200,15 @@ import PoliciasForm from "./modulos/PoliciasForm.vue";
 import InspeccionLugarForm from "./modulos/InspeccionLugarForm.vue";
 import InspeccionPersonaForm from "./modulos/InspeccionPersonaForm.vue";
 import InspeccionVehiculoForm from "./modulos/InspeccionVehiculoForm.vue";
+import AnexoAForm from "./modulos/AnexoAForm.vue";
+import AnexoBForm from "./modulos/AnexoBForm.vue";
+import AnexoCForm from "./modulos/AnexoCForm.vue";
+import AnexoDForm from "./modulos/AnexoDForm.vue";
+import AnexoEForm from "./modulos/AnexoEForm.vue";
+import AnexoFForm from "./modulos/AnexoFForm.vue";
+import BitacoraForm from "./modulos/BitacoraForm.vue";
 import NarracionPrimerRespondienteForm from "./modulos/NarracionPrimerRespondienteForm.vue";
 import ActuacionesForm from "./modulos/ActuacionesForm.vue";
-import AnexosPruebaForm from "./modulos/AnexosPruebaForm.vue";
 import PuestaDisposicionForm from "./modulos/PuestaDisposicionForm.vue";
 
 const props = defineProps({
@@ -162,8 +221,18 @@ const auth = useAuthStore();
 const iphId = computed(() => props.id);
 const iph = ref(null);
 const exportando = ref(false);
+const finalizando = ref(false);
+const errorEstado = ref("");
+const errorVistaPrevia = ref("");
+const previsualizandoPantalla = ref(false);
+const vistaPreviaCargando = ref(false);
+const pdfPreviewUrl = ref("");
+const pdfPreviewRevision = ref(0);
+const camposPorModulo = ref({});
 const anexosEntregados = ref({});
 const modulosCompletados = ref(new Set());
+let temporizadorVistaPrevia;
+let solicitudVistaPrevia = 0;
 
 const componentesPorModulo = {
   puesta_disposicion: PuestaDisposicionForm,
@@ -179,14 +248,16 @@ const componentesPorModulo = {
   inspeccion_persona: InspeccionPersonaForm,
   inspeccion_vehiculo: InspeccionVehiculoForm,
   inspeccion_vehiculos: InspeccionVehiculoForm,
+  anexo_a: AnexoAForm,
+  anexo_b: AnexoBForm,
+  anexo_c: AnexoCForm,
+  anexo_d: AnexoDForm,
+  anexo_e: AnexoEForm,
+  anexo_f: AnexoFForm,
+  bitacora: BitacoraForm,
   narracion_primer_respondiente: NarracionPrimerRespondienteForm,
   actuaciones: ActuacionesForm,
   policias: PoliciasForm,
-  anexo_b: AnexosPruebaForm,
-  anexo_d: AnexosPruebaForm,
-  anexo_e: AnexosPruebaForm,
-  anexo_f: AnexosPruebaForm,
-  bitacora: AnexosPruebaForm,
 };
 
 const secciones = [
@@ -243,10 +314,7 @@ const secciones = [
     subtitulo: "Detención(es)",
     titulo: "ANEXO A. DETENCIÓN(ES)",
     pendiente: false,
-    modulos: [
-      { clave: "imputado", titulo: "Datos de la persona detenida" },
-      { clave: "inspeccion_persona", titulo: "Inspección a la persona detenida" },
-    ],
+    modulos: [{ clave: "anexo_a", titulo: "Detención(es)" }],
   },
   {
     id: "anexo-b",
@@ -262,7 +330,7 @@ const secciones = [
     subtitulo: "Inspección de vehículo",
     titulo: "ANEXO C. INSPECCIÓN DE VEHÍCULO",
     pendiente: false,
-    modulos: [{ clave: "inspeccion_vehiculo", titulo: "Datos del vehículo inspeccionado" }],
+    modulos: [{ clave: "anexo_c", titulo: "Inspección de vehículo" }],
   },
   {
     id: "anexo-d",
@@ -291,8 +359,8 @@ const secciones = [
   {
     id: "bitacora",
     etiqueta: "BITÁCORA",
-    subtitulo: "Registro de actividades",
-    titulo: "BITÁCORA DE ACTIVIDADES",
+    subtitulo: "Comentarios de registros devueltos",
+    titulo: "BITÁCORA DE COMENTARIOS DE REGISTROS DEVUELTOS",
     pendiente: false,
     modulos: [{ clave: "bitacora", titulo: "Registro de actividad" }],
   },
@@ -363,6 +431,7 @@ function marcarModuloCompletado() {
     modulosCompletados.value = new Set(modulosCompletados.value).add(moduloActivo.value);
   }
   recargarEstado();
+  programarVistaPrevia();
 }
 
 function marcarYAvanzar() {
@@ -393,9 +462,126 @@ function cerrarSesion() {
   router.push({ name: "login" });
 }
 
+function leerCamposActuales() {
+  const contenedor = document.querySelector(".iph-section-content");
+  if (!contenedor || !moduloActivo.value) return;
+  const controles = Array.from(contenedor.querySelectorAll("input, select, textarea"))
+    .filter((control) => !["button", "submit", "reset", "hidden", "file"].includes(control.type));
+  camposPorModulo.value = {
+    ...camposPorModulo.value,
+    [moduloActivo.value]: controles.map((control, index) => {
+      const etiqueta = control.closest("label")?.textContent
+        || (control.id
+          ? Array.from(contenedor.querySelectorAll("label[for]")).find((label) => label.htmlFor === control.id)?.textContent
+          : "")
+        || control.getAttribute("aria-label")
+        || control.name
+        || `Campo ${index + 1}`;
+      let value = control.value || "";
+      if (control.type === "checkbox") value = control.checked ? (control.value === "on" ? "X" : control.value) : "";
+      if (control.type === "radio") value = control.checked ? control.value : "";
+      if (control.type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const [year, month, day] = value.split("-");
+        value = `${day}/${month}/${year}`;
+      }
+      return {
+        label: etiqueta.replace(/\s+/g, " ").trim(),
+        value: String(value).trim(),
+      };
+    }),
+  };
+}
+
+function actualizarCamposVistaPrevia(event) {
+  const control = event.target;
+  if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement)) {
+    return;
+  }
+  leerCamposActuales();
+  programarVistaPrevia();
+}
+
+function programarVistaPrevia() {
+  window.clearTimeout(temporizadorVistaPrevia);
+  temporizadorVistaPrevia = window.setTimeout(actualizarVistaPrevia, 500);
+}
+
+async function previsualizarPantalla() {
+  if (!moduloActivo.value) {
+    errorVistaPrevia.value = "No se pudo identificar la pantalla actual para generar la vista previa.";
+    return;
+  }
+  const ventana = window.open("", "_blank");
+  if (!ventana) {
+    errorVistaPrevia.value = "El navegador bloqueó la ventana de vista previa. Permite ventanas emergentes e inténtalo de nuevo.";
+    return;
+  }
+  ventana.document.title = "Vista previa del IPH";
+  ventana.document.body.textContent = "Generando la vista previa del PDF…";
+  previsualizandoPantalla.value = true;
+  errorVistaPrevia.value = "";
+  try {
+    leerCamposActuales();
+    const { data } = await api.post(
+      `/iph/${iphId.value}/capturas/${encodeURIComponent(moduloActivo.value)}/previsualizar-pdf`,
+      { camposPorModulo: camposPorModulo.value },
+      { responseType: "blob" },
+    );
+    const url = window.URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+    ventana.location.replace(url);
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+  } catch (error) {
+    ventana.close();
+    let mensaje = error.response?.data?.msg;
+    if (error.response?.data instanceof Blob) {
+      try {
+        const payload = JSON.parse(await error.response.data.text());
+        mensaje = payload.msg;
+      } catch {
+        mensaje = "";
+      }
+    }
+    errorVistaPrevia.value = mensaje || "No se pudo generar la vista previa del PDF. Verifica que la captura esté guardada y vuelve a intentarlo.";
+  } finally {
+    previsualizandoPantalla.value = false;
+  }
+}
+
+async function capturarDespuesDeAccion() {
+  await nextTick();
+  leerCamposActuales();
+  programarVistaPrevia();
+}
+
+async function actualizarVistaPrevia() {
+  const idSolicitud = ++solicitudVistaPrevia;
+  vistaPreviaCargando.value = true;
+  errorVistaPrevia.value = "";
+  try {
+    const { data } = await api.post(
+      `/iph/${iphId.value}/previsualizar-pdf`,
+      { camposPorModulo: camposPorModulo.value },
+      { responseType: "blob" },
+    );
+    if (idSolicitud !== solicitudVistaPrevia) return;
+    const urlAnterior = pdfPreviewUrl.value;
+    pdfPreviewUrl.value = window.URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+    pdfPreviewRevision.value += 1;
+    if (urlAnterior) window.URL.revokeObjectURL(urlAnterior);
+  } catch (error) {
+    if (idSolicitud === solicitudVistaPrevia) {
+      errorVistaPrevia.value = error.response?.data?.msg
+        || "No se pudo actualizar la vista previa del PDF.";
+    }
+  } finally {
+    if (idSolicitud === solicitudVistaPrevia) vistaPreviaCargando.value = false;
+  }
+}
+
 async function cargarIPH() {
   const { data } = await api.get(`/iph/${iphId.value}`);
   iph.value = data;
+  programarVistaPrevia();
 }
 
 function recargarEstado() {
@@ -405,7 +591,12 @@ function recargarEstado() {
 async function exportarPDF() {
   exportando.value = true;
   try {
-    const response = await api.get(`/iph/${iphId.value}/exportar-pdf`, { responseType: "blob" });
+    leerCamposActuales();
+    const response = await api.post(
+      `/iph/${iphId.value}/${iph.value?.estado === "TERMINADA" ? "exportar-pdf" : "previsualizar-pdf"}`,
+      { camposPorModulo: camposPorModulo.value },
+      { responseType: "blob" },
+    );
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement("a");
     link.href = url;
@@ -413,14 +604,43 @@ async function exportarPDF() {
     document.body.appendChild(link);
     link.click();
     link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    errorEstado.value = error.response?.data?.msg || "No se pudo exportar el PDF.";
   } finally {
     exportando.value = false;
   }
 }
 
+async function finalizarIPH() {
+  if (!window.confirm("¿Confirma que desea marcar este IPH como terminado?")) return;
+  finalizando.value = true;
+  errorEstado.value = "";
+  try {
+    const { data } = await api.patch(`/iph/${iphId.value}/estado`, { estado: "TERMINADA" });
+    iph.value = { ...iph.value, estado: data.estado };
+  } catch (error) {
+    errorEstado.value = error.response?.data?.msg || "No se pudo actualizar el estado del IPH.";
+  } finally {
+    finalizando.value = false;
+  }
+}
+
 watch(iphId, (nuevoId, idAnterior) => {
-  if (nuevoId !== idAnterior) modulosCompletados.value = new Set();
+  if (nuevoId !== idAnterior) {
+    solicitudVistaPrevia += 1;
+    window.clearTimeout(temporizadorVistaPrevia);
+    modulosCompletados.value = new Set();
+    camposPorModulo.value = {};
+    if (pdfPreviewUrl.value) window.URL.revokeObjectURL(pdfPreviewUrl.value);
+    pdfPreviewUrl.value = "";
+  }
   cargarIPH();
 });
 onMounted(cargarIPH);
+onBeforeUnmount(() => {
+  solicitudVistaPrevia += 1;
+  window.clearTimeout(temporizadorVistaPrevia);
+  if (pdfPreviewUrl.value) window.URL.revokeObjectURL(pdfPreviewUrl.value);
+});
 </script>

@@ -140,6 +140,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import api from "../../store/api";
+import { leerCaptura } from "../../store/capturas";
 
 const props = defineProps({ iphId: { type: [String, Number], required: true } });
 const emit = defineEmits(["guardado", "cancelar", "siguiente"]);
@@ -213,14 +214,14 @@ function actualizarNoAplica() {
   if (form.value.no_aplica) form.value.unidad_arribo = "";
 }
 
-function copiarResponsableSeccion1() {
+async function copiarResponsableSeccion1() {
   mensaje.value = "";
   error.value = "";
   if (!seleccionarSeccion1.value) return;
 
   try {
-    const borrador = localStorage.getItem(`iph-pruebas:${props.iphId}:puesta_disposicion`);
-    const responsable = borrador ? JSON.parse(borrador)?.responsable : null;
+    const borrador = await leerCaptura(props.iphId, "puesta_disposicion", `iph-pruebas:${props.iphId}:puesta_disposicion`);
+    const responsable = borrador?.responsable;
     if (!responsable) {
       seleccionarSeccion1.value = false;
       error.value = "No hay datos guardados de quien realiza la puesta a disposición en la Sección 1.";
@@ -234,7 +235,7 @@ function copiarResponsableSeccion1() {
     mensaje.value = "Se copiaron los datos disponibles de la Sección 1. Verifica la información restante.";
   } catch (exception) {
     seleccionarSeccion1.value = false;
-    error.value = `No se pudieron leer los datos de la Sección 1: ${exception.message}`;
+    error.value = exception.response?.data?.msg || `No se pudieron leer los datos de la Sección 1: ${exception.message}`;
   }
 }
 

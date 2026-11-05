@@ -2,14 +2,14 @@
   <div class="test-module">
     <p class="test-module-intro">
       Describa cronológicamente las acciones realizadas desde el conocimiento del hecho hasta la puesta a disposición.
-      <span>La narrativa se guarda en el servidor; los datos complementarios se guardan localmente para pruebas.</span>
+      <span>La narrativa y sus datos complementarios se guardan en el servidor.</span>
     </p>
 
     <p v-if="errorCarga" class="test-module-error" role="alert">{{ errorCarga }}</p>
     <p v-if="errorGuardado" class="test-module-error" role="alert">{{ errorGuardado }}</p>
     <p v-if="guardado" class="test-module-success" role="status">{{ guardado }}</p>
 
-    <form class="test-module-form" @submit.prevent="guardar">
+    <form ref="formulario" class="test-module-form" @submit.prevent="guardar">
       <section class="test-module-section">
         <header class="test-module-section-heading">
           <h2>Apartado 5.1 Descripción de los hechos y actuación de la autoridad</h2>
@@ -68,15 +68,24 @@
           <div class="test-module-grid">
             <label class="test-module-field">
               <span>Bien jurídico</span>
-              <input v-model="bienActual.bien_juridico" />
+              <select v-model="bienActual.bien_juridico" @change="cambiarBienJuridico">
+                <option value="">- - - -</option>
+                <option v-for="bien in bienesJuridicos" :key="bien">{{ bien }}</option>
+              </select>
             </label>
             <label class="test-module-field">
               <span>Tipo de delito</span>
-              <input v-model="bienActual.tipo_delito" />
+              <select v-model="bienActual.tipo_delito" @change="cambiarTipoDelito">
+                <option value="">- - - -</option>
+                <option v-for="delito in tiposDelito" :key="delito">{{ delito }}</option>
+              </select>
             </label>
             <label class="test-module-field">
               <span>Subtipo de delito</span>
-              <input v-model="bienActual.subtipo_delito" />
+              <select v-model="bienActual.subtipo_delito">
+                <option value="">- - - -</option>
+                <option v-for="subtipo in subtiposDelito" :key="subtipo">{{ subtipo }}</option>
+              </select>
             </label>
             <label class="test-module-field test-module-field-wide">
               <span>Especifique subtipo de delito</span>
@@ -110,17 +119,20 @@
         <button type="submit" class="test-module-primary" :disabled="guardando">
           {{ guardando ? "Guardando..." : "Guardar sección" }}
         </button>
+        <button type="button" class="test-module-next" aria-label="Guardar e ir a la siguiente sección" @click="guardarYSiguiente">➜</button>
       </div>
     </form>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import api from "../../store/api";
+import { guardarCaptura, leerCaptura } from "../../store/capturas";
 
 const props = defineProps({ iphId: { type: [String, Number], required: true } });
-const emit = defineEmits(["guardado"]);
+const emit = defineEmits(["guardado", "siguiente"]);
+const formulario = ref(null);
 const guardando = ref(false);
 const errorCarga = ref("");
 const errorGuardado = ref("");
@@ -142,6 +154,61 @@ const bienActual = ref({
   especifica: "",
 });
 const storageKey = `iph-pruebas:${props.iphId}:seccion-5`;
+const bienesJuridicos = [
+  "LA VIDA Y LA INTEGRIDAD CORPORAL",
+  "LA LIBERTAD PERSONAL",
+  "LA LIBERTAD Y LA SEGURIDAD SEXUAL",
+  "EL PATRIMONIO",
+  "LA FAMILIA",
+  "LA SOCIEDAD",
+  "DELITOS QUE ATENTAN CONTRA OTROS BIENES JURÍDICOS AFECTADOS (DEL FUERO COMÚN)",
+  "DELITOS CONTRA LA SEGURIDAD PÚBLICA",
+  "DELITOS CONTRA LA AUTORIDAD",
+  "ATAQUES A LAS VÍAS DE COMUNICACIÓN Y VIOLACIÓN O RETENCIÓN DE CORRESPONDENCIA",
+  "EL CORRECTO FUNCIONAMIENTO DE LA ADMINISTRACIÓN PÚBLICA",
+  "LA SEGURIDAD PÚBLICA",
+  "SEGURIDAD DE LAS INSTITUCIONES DEL ESTADO Y LA FE PÚBLICA",
+  "LA SEGURIDAD DE LAS VÍAS DE COMUNICACIÓN Y DE LOS MEDIOS DE TRANSPORTE PÚBLICO",
+  "LIBERTAD, LA SEGURIDAD Y LA TRANQUILIDAD DE LAS PERSONAS",
+  "LA SEGURIDAD Y EL CORRECTO FUNCIONAMIENTO DEL SERVICIO PÚBLICO",
+  "LA SEGURIDAD DE LAS PERSONAS",
+  "OTRO",
+  "LA SEGURIDAD PÚBLICA Y LA SEGURIDAD DEL ESTADO",
+];
+const delitosPatrimonio = [
+  "ROBO A CASA HABITACIÓN",
+  "ROBO DE VEHÍCULO AUTOMOTOR",
+  "ROBO DE AUTOPARTES",
+  "ROBO A TRANSPORTISTA",
+  "ROBO A TRANSEÚNTE EN VÍA PÚBLICA",
+  "ROBO A TRANSEÚNTE EN ESPACIO ABIERTO AL PÚBLICO",
+  "ROBO EN TRANSPORTE PÚBLICO INDIVIDUAL",
+  "ROBO EN TRANSPORTE PÚBLICO COLECTIVO",
+  "ROBO EN TRANSPORTE INDIVIDUAL",
+  "ROBO A INSTITUCIÓN BANCARIA",
+  "ROBO A NEGOCIO",
+  "ROBO DE GANADO",
+  "ROBO DE MAQUINARIA",
+  "OTROS ROBOS",
+  "FRAUDE",
+  "EXTORSIÓN",
+  "DAÑO A LA PROPIEDAD",
+  "DESPOJO",
+  "OTROS DELITOS CONTRA EL PATRIMONIO",
+];
+const tiposDelito = computed(() => bienActual.value.bien_juridico === "EL PATRIMONIO" ? delitosPatrimonio : []);
+const subtiposDelito = computed(() => bienActual.value.tipo_delito === "OTROS DELITOS CONTRA EL PATRIMONIO"
+  ? ["OTROS DELITOS CONTRA EL PATRIMONIO NO CONSIDERADOS EN LAS CATEGORÍAS PREVIAS"]
+  : []);
+
+function cambiarBienJuridico() {
+  bienActual.value.tipo_delito = "";
+  bienActual.value.subtipo_delito = "";
+}
+
+function cambiarTipoDelito() {
+  bienActual.value.subtipo_delito = "";
+}
 
 async function cargar() {
   errorCarga.value = "";
@@ -154,9 +221,8 @@ async function cargar() {
   }
 
   try {
-    const guardados = localStorage.getItem(storageKey);
-    if (!guardados) return;
-    const extra = JSON.parse(guardados);
+    const extra = await leerCaptura(props.iphId, "seccion_5_complemento", storageKey);
+    if (!extra) return;
     if (!extra || typeof extra !== "object" || !Array.isArray(extra.bienes)) {
       throw new Error("Los datos complementarios no tienen el formato esperado.");
     }
@@ -164,7 +230,7 @@ async function cargar() {
     bienes.value = extra.bienes;
   } catch (error) {
     console.error("No se pudieron cargar los datos complementarios de prueba:", error);
-    errorCarga.value = "La narrativa se cargó, pero no se pudieron leer los datos complementarios guardados en este navegador.";
+    errorCarga.value = error.response?.data?.msg || "No se pudieron leer los datos complementarios de la Sección 5 desde el servidor.";
   }
 }
 
@@ -187,15 +253,8 @@ async function guardar() {
       narrativa: form.value.narrativa,
     });
 
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({ datos: datos.value, bienes: bienes.value }));
-    } catch (error) {
-      console.error("No se pudieron guardar los datos complementarios de prueba:", error);
-      errorGuardado.value = "La narrativa se guardó en el servidor, pero no fue posible guardar los datos complementarios en este navegador.";
-      emit("guardado");
-      return;
-    }
-    guardado.value = "Se guardó la narrativa y los datos complementarios de prueba.";
+    await guardarCaptura(props.iphId, "seccion_5_complemento", { datos: datos.value, bienes: bienes.value });
+    guardado.value = "Narrativa y datos complementarios guardados en el servidor.";
     emit("guardado");
   } catch (error) {
     console.error("No se pudo guardar la narrativa de la sección 5:", error);
@@ -203,6 +262,12 @@ async function guardar() {
   } finally {
     guardando.value = false;
   }
+}
+
+async function guardarYSiguiente() {
+  if (!formulario.value?.reportValidity()) return;
+  await guardar();
+  if (!errorGuardado.value) emit("siguiente");
 }
 
 onMounted(cargar);
