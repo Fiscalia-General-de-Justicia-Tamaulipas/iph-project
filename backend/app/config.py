@@ -6,13 +6,15 @@ load_dotenv()
 
 
 class Config:
+    # Margen multipart por encima del máximo de 50 MiB por imagen.
+    MAX_CONTENT_LENGTH = 51 * 1024 * 1024
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret")
     JWT_ACCESS_TOKEN_EXPIRES = 60 * 60 * 8  # 8 horas
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # --- Conexión a SQL Server remoto (base de datos ya existente) ---
+
     DB_DRIVER = os.getenv("DB_DRIVER", "ODBC Driver 17 for SQL Server")
     DB_SERVER = os.getenv("DB_SERVER", "localhost")
     DB_PORT = os.getenv("DB_PORT", "1433")
@@ -23,8 +25,7 @@ class Config:
     DB_ENCRYPT = os.getenv("DB_ENCRYPT", "yes")
     DB_TRUST_SERVER_CERTIFICATE = os.getenv("DB_TRUST_SERVER_CERTIFICATE", "yes")
 
-    # Si se define SQLALCHEMY_DATABASE_URI en el .env, se respeta tal cual.
-    # De lo contrario, se arma automáticamente con los datos anteriores.
+ 
     _explicit_uri = os.getenv("SQLALCHEMY_DATABASE_URI")
 
     if _explicit_uri:

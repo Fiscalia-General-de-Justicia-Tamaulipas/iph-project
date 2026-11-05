@@ -15,4 +15,7 @@ from app.models.iph import (
     InspeccionVehiculo,
     NarracionPrimerRespondiente,
     Actuacion,
+    IPHCaptura,
+    IPHEstadoWeb,
+    IPHAdjunto,
 )

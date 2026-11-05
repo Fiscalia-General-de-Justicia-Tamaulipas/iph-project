@@ -1,8 +1,15 @@
 from datetime import datetime, date, time as dtime
+import json
+import re
+from io import BytesIO
+from types import SimpleNamespace
 
 from flask import Blueprint, current_app, request, jsonify, send_file
+from werkzeug.exceptions import HTTPException, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from sqlalchemy import inspect
+from sqlalchemy.sql.sqltypes import Boolean, Date as SQLDate, DateTime as SQLDateTime, Float, Integer, Numeric, Time as SQLTime
+from werkzeug.utils import secure_filename
 
 from app.extensions import db
 from app.models.iph import (
@@ -21,6 +28,9 @@ from app.models.iph import (
     InspeccionVehiculo,
     NarracionPrimerRespondiente,
     Actuacion,
+    IPHCaptura,
+    IPHEstadoWeb,
+    IPHAdjunto,
 )
 from app.services.pdf_generator import generar_pdf_iph
 
@@ -49,7 +59,7 @@ def _fetch_all(sql, params=(), *, raise_errors=False):
             conn.close()
 
 
-def _fetch_one(sql, params=()):
+def _fetch_one(sql, params=(), *, raise_errors=False):
     conn = None
     cursor = None
     try:
@@ -64,6 +74,9 @@ def _fetch_one(sql, params=()):
         columns = [column[0] for column in cursor.description]
         return dict(zip(columns, row))
     except Exception:
+        current_app.logger.exception("Falló una consulta SQL de lectura")
+        if raise_errors:
+            raise
         return None
     finally:
         if cursor is not None:
@@ -185,6 +198,53 @@ MODULOS_UNO_A_MUCHOS = {
     "inspeccion_vehiculo": InspeccionVehiculo,
     "actuaciones": Actuacion,
 }
+
+PANTALLAS_CAPTURA = {
+    "puesta_disposicion", "anexo_a", "anexo_b", "anexo_c_complemento",
+    "anexo_d", "anexo_e", "anexo_f", "bitacora", "seccion_5_complemento",
+}
+PANTALLAS_PREVISUALIZABLES = PANTALLAS_CAPTURA | {
+    "policias", "conocimiento_hecho", "acta_noticia", "acciones_realizadas",
+    "actuaciones", "denunciante", "ofendido", "victima", "imputado", "testigo",
+    "inspeccion_lugar", "inspeccion_persona", "inspeccion_vehiculo",
+    "inspeccion_vehiculos", "narracion_primer_respondiente",
+}
+ESTADOS_WEB = {"EN_TRAMITE", "ACTIVA", "TERMINADA", "CANCELADA"}
+
+
+def _validar_iph_legacy(iph_id):
+    registro = _fetch_one("SELECT TOP 1 ID_IPH FROM IPH WHERE ID_IPH = ?", (iph_id,), raise_errors=True)
+    if not registro:
+        abort(404, description="IPH no encontrado.")
+    return registro
+
+
+def _tabla_web_disponible(modelo):
+    """Comprueba explícitamente el objeto dbo requerido por una función web opcional."""
+    tabla = modelo.__table__
+    disponible = inspect(db.engine).has_table(tabla.name, schema=tabla.schema or "dbo")
+    if not disponible:
+        current_app.logger.warning(
+            "No existe %s.%s; se usará el comportamiento legacy cuando sea posible.",
+            tabla.schema or "dbo",
+            tabla.name,
+        )
+    return disponible
+
+
+def _actualizar_estado_web(iph_id, nuevo_estado="ACTIVA"):
+    if not _tabla_web_disponible(IPHEstadoWeb):
+        return False
+    estado = IPHEstadoWeb.query.filter_by(iph_id=iph_id).first()
+    if estado is None:
+        estado = IPHEstadoWeb(iph_id=iph_id, estado=nuevo_estado)
+        db.session.add(estado)
+    elif estado.estado == "EN_TRAMITE" and nuevo_estado == "ACTIVA":
+        estado.estado = "ACTIVA"
+    elif nuevo_estado != "ACTIVA":
+        estado.estado = nuevo_estado
+    db.session.flush()
+    return True
 
 
 def modelo_a_dict(instancia):
@@ -440,7 +500,7 @@ def _normalizar_payload_inspeccion_persona(data):
 
 
 def asignar_campos(instancia, data, modelo):
-    """Asigna solo los campos que existen como columnas del modelo, ignorando el resto."""
+    """Mapea los nombres de API al modelo y convierte valores JSON a tipos SQL."""
     columnas_validas = {c.name for c in inspect(modelo).columns}
     if modelo.__tablename__ == "conocimiento_hecho":
         data = _normalizar_payload_conocimiento_hecho(data)
@@ -454,9 +514,36 @@ def asignar_campos(instancia, data, modelo):
         data = _normalizar_payload_inspeccion_persona(data)
     elif modelo.__tablename__ in {"denunciantes", "ofendidos", "victimas", "testigos"}:
         data = _normalizar_payload_persona(data)
+    columnas = {c.name: c for c in inspect(modelo).columns}
+    desconocidos = set(data) - columnas_validas - {"id", "iph_id"}
+    if desconocidos:
+        raise ValueError("Campos no reconocidos: " + ", ".join(sorted(desconocidos)))
     for campo, valor in data.items():
-        if campo in columnas_validas and campo not in ("id", "iph_id"):
-            setattr(instancia, campo, valor)
+        if campo not in columnas_validas or campo in ("id", "iph_id"):
+            continue
+        tipo = columnas[campo].type
+        if valor == "" and not isinstance(tipo, (SQLDate, SQLTime, SQLDateTime, Boolean)):
+            valor = None
+        elif valor == "" and isinstance(tipo, (SQLDate, SQLTime, SQLDateTime)):
+            valor = None
+        elif isinstance(tipo, SQLDateTime) and isinstance(valor, str):
+            valor = datetime.fromisoformat(valor)
+        elif isinstance(tipo, SQLDate) and isinstance(valor, str):
+            valor = date.fromisoformat(valor)
+        elif isinstance(tipo, SQLTime) and isinstance(valor, str):
+            valor = dtime.fromisoformat(valor)
+        elif isinstance(tipo, Boolean) and not isinstance(valor, bool):
+            if valor in (1, "1", "true", "TRUE", "si", "SI", "yes", "YES"):
+                valor = True
+            elif valor in (0, "0", "false", "FALSE", "no", "NO", None, ""):
+                valor = False
+            else:
+                raise ValueError(f"Valor booleano inválido para {campo}.")
+        elif isinstance(tipo, Integer) and valor is not None:
+            valor = int(valor)
+        elif isinstance(tipo, (Numeric, Float)) and valor is not None:
+            valor = float(valor)
+        setattr(instancia, campo, valor)
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +626,13 @@ def listar_iph():
         return jsonify([]), 200
 
     catalogo = []
+    ids_iph = [item.get("ID_IPH") or item.get("id") for item in map(_normalize_iph_row, registros)]
+    estados_web = {}
+    if ids_iph and _tabla_web_disponible(IPHEstadoWeb):
+        estados_web = {
+            estado.iph_id: estado.estado
+            for estado in IPHEstadoWeb.query.filter(IPHEstadoWeb.iph_id.in_(ids_iph)).all()
+        }
     for registro in registros:
         item = _normalize_iph_row(registro)
         if item.get("id") is None:
@@ -558,8 +652,8 @@ def listar_iph():
             "no_expediente": item.get("no_expediente") or item.get("NUC") or "",
             "UNIDAD": item.get("UNIDAD") or item.get("adscripcion") or "",
             "adscripcion": item.get("adscripcion") or item.get("UNIDAD") or "",
-            "ESTADO_CARPETA": item.get("ESTADO_CARPETA") or item.get("estado") or "EN_TRAMITE",
-            "estado": item.get("estado") or item.get("ESTADO_CARPETA") or "EN_TRAMITE",
+            "ESTADO_CARPETA": estados_web.get(item.get("id")) or item.get("ESTADO_CARPETA") or item.get("estado") or "EN_TRAMITE",
+            "estado": estados_web.get(item.get("id")) or item.get("estado") or item.get("ESTADO_CARPETA") or "EN_TRAMITE",
             "ID_CARPETA": item.get("ID_CARPETA") or 0,
             "estado_modulos": {},
         })
@@ -632,6 +726,7 @@ def crear_iph():
         ultimo = _fetch_one(
             "SELECT TOP 1 IPH FROM IPH WHERE ID_MUNICIPIO_IPH = ? ORDER BY ID_IPH DESC",
             (municipio,),
+            raise_errors=True,
         )
         ultimo_folio = ultimo.get("IPH") if ultimo else None
         estado_code, ultimo_seq = _parse_legacy_iph_folio(ultimo_folio)
@@ -669,6 +764,12 @@ def crear_iph():
             row = cursor.fetchone()
             nuevo_id = row[0] if row else None
 
+        if nuevo_id is None:
+            raise RuntimeError("SQL Server no devolvió el ID del IPH creado.")
+        if _tabla_web_disponible(IPHEstadoWeb):
+            db.session.add(IPHEstadoWeb(iph_id=int(nuevo_id), estado="EN_TRAMITE"))
+            db.session.commit()
+
         return jsonify({
             "id": nuevo_id,
             "ID_IPH": nuevo_id,
@@ -690,7 +791,7 @@ def crear_iph():
 @jwt_required()
 def obtener_iph(iph_id):
     try:
-        registro = _fetch_one("SELECT TOP 1 * FROM IPH WHERE ID_IPH = ?", (iph_id,))
+        registro = _fetch_one("SELECT TOP 1 * FROM IPH WHERE ID_IPH = ?", (iph_id,), raise_errors=True)
     except Exception as exc:
         return jsonify({"msg": "No fue posible consultar el IPH solicitado.", "detalle": str(exc)}), 503
 
@@ -698,12 +799,17 @@ def obtener_iph(iph_id):
         return jsonify({"msg": "IPH no encontrado"}), 404
 
     item = _normalize_iph_row(registro)
+    estado_web = (
+        IPHEstadoWeb.query.filter_by(iph_id=iph_id).first()
+        if _tabla_web_disponible(IPHEstadoWeb)
+        else None
+    )
     return jsonify({
         "id": item.get("id"),
         "folio_interno": item.get("folio_interno") or item.get("IPH") or "",
         "no_referencia": item.get("NO_REFERENCIA") or item.get("no_referencia"),
         "no_expediente": item.get("no_expediente") or item.get("NUC") or "",
-        "estado": item.get("estado") or "EN_TRAMITE",
+        "estado": estado_web.estado if estado_web else item.get("estado") or "EN_TRAMITE",
         "estado_modulos": {},
     }), 200
 
@@ -716,6 +822,10 @@ def obtener_iph(iph_id):
 @iph_bp.get("/<int:iph_id>/<string:modulo>")
 @jwt_required()
 def obtener_modulo_unico(iph_id, modulo):
+    if modulo in {"inspeccion_persona", "inspeccion_vehiculo"}:
+        modelo = MODULOS_UNO_A_MUCHOS[modulo]
+        instancia = modelo.query.filter_by(iph_id=iph_id).order_by(modelo.id).first()
+        return jsonify(modelo_a_dict(instancia) if instancia else None), 200
     if modulo not in MODULOS_UNO_A_UNO:
         return jsonify({"msg": "Módulo no encontrado"}), 404
 
@@ -729,20 +839,53 @@ def obtener_modulo_unico(iph_id, modulo):
 @iph_bp.put("/<int:iph_id>/<string:modulo>")
 @jwt_required()
 def guardar_modulo_unico(iph_id, modulo):
+    if modulo in {"inspeccion_persona", "inspeccion_vehiculo"}:
+        _validar_iph_legacy(iph_id)
+        modelo = MODULOS_UNO_A_MUCHOS[modulo]
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({"msg": "El cuerpo debe ser un objeto JSON."}), 400
+        try:
+            instancia = modelo.query.filter_by(iph_id=iph_id).order_by(modelo.id).first()
+            if instancia is None:
+                instancia = modelo(iph_id=iph_id)
+                db.session.add(instancia)
+            asignar_campos(instancia, data, modelo)
+            _actualizar_estado_web(iph_id)
+            db.session.commit()
+            return jsonify(modelo_a_dict(instancia)), 200
+        except (TypeError, ValueError) as exc:
+            db.session.rollback()
+            return jsonify({"msg": str(exc)}), 422
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("Error guardando el módulo %s del IPH %s", modulo, iph_id)
+            return jsonify({"msg": "No fue posible guardar el módulo en la base de datos."}), 503
     if modulo not in MODULOS_UNO_A_UNO:
         return jsonify({"msg": "Módulo no encontrado"}), 404
 
-    IPH.query.get_or_404(iph_id)  # valida que el folio exista
+    _validar_iph_legacy(iph_id)
     modelo = MODULOS_UNO_A_UNO[modulo]
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"msg": "El cuerpo debe ser un objeto JSON."}), 400
 
     instancia = modelo.query.filter_by(iph_id=iph_id).first()
     if not instancia:
         instancia = modelo(iph_id=iph_id)
         db.session.add(instancia)
 
-    asignar_campos(instancia, data, modelo)
-    db.session.commit()
+    try:
+        asignar_campos(instancia, data, modelo)
+        _actualizar_estado_web(iph_id)
+        db.session.commit()
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"msg": str(exc)}), 422
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error guardando el módulo %s del IPH %s", modulo, iph_id)
+        return jsonify({"msg": "No fue posible guardar el módulo en la base de datos."}), 503
     return jsonify(modelo_a_dict(instancia)), 200
 
 
@@ -767,14 +910,25 @@ def crear_item_modulo_multiple(iph_id, modulo):
     if modulo not in MODULOS_UNO_A_MUCHOS:
         return jsonify({"msg": "Módulo no encontrado"}), 404
 
-    IPH.query.get_or_404(iph_id)
+    _validar_iph_legacy(iph_id)
     modelo = MODULOS_UNO_A_MUCHOS[modulo]
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"msg": "El cuerpo debe ser un objeto JSON."}), 400
 
     instancia = modelo(iph_id=iph_id)
-    asignar_campos(instancia, data, modelo)
-    db.session.add(instancia)
-    db.session.commit()
+    try:
+        asignar_campos(instancia, data, modelo)
+        _actualizar_estado_web(iph_id)
+        db.session.add(instancia)
+        db.session.commit()
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"msg": str(exc)}), 422
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error creando un registro de %s para IPH %s", modulo, iph_id)
+        return jsonify({"msg": "No fue posible guardar el registro en la base de datos."}), 503
     return jsonify(modelo_a_dict(instancia)), 201
 
 
@@ -786,10 +940,20 @@ def actualizar_item_modulo_multiple(iph_id, modulo, item_id):
 
     modelo = MODULOS_UNO_A_MUCHOS[modulo]
     instancia = modelo.query.filter_by(id=item_id, iph_id=iph_id).first_or_404()
-    data = request.get_json(silent=True) or {}
-
-    asignar_campos(instancia, data, modelo)
-    db.session.commit()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"msg": "El cuerpo debe ser un objeto JSON."}), 400
+    try:
+        asignar_campos(instancia, data, modelo)
+        _actualizar_estado_web(iph_id)
+        db.session.commit()
+    except (TypeError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({"msg": str(exc)}), 422
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error actualizando un registro de %s para IPH %s", modulo, iph_id)
+        return jsonify({"msg": "No fue posible guardar el registro en la base de datos."}), 503
     return jsonify(modelo_a_dict(instancia)), 200
 
 
@@ -806,14 +970,371 @@ def eliminar_item_modulo_multiple(iph_id, modulo, item_id):
     return jsonify({"msg": "Eliminado"}), 200
 
 
+@iph_bp.get("/<int:iph_id>/capturas/<string:pantalla>")
+@jwt_required()
+def obtener_captura_web(iph_id, pantalla):
+    if pantalla not in PANTALLAS_CAPTURA:
+        return jsonify({"msg": "Pantalla de captura no reconocida."}), 404
+    _validar_iph_legacy(iph_id)
+    if not _tabla_capturas_disponible():
+        return jsonify({"msg": "No se pudo cargar esta pantalla desde el servidor."}), 503
+    try:
+        captura = IPHCaptura.query.filter_by(iph_id=iph_id, pantalla=pantalla).first()
+        return jsonify(json.loads(captura.datos_json) if captura else None), 200
+    except Exception:
+        current_app.logger.exception("No se pudo cargar la pantalla %s del IPH %s", pantalla, iph_id)
+        return jsonify({"msg": "No se pudo cargar esta pantalla desde el servidor."}), 503
+
+
+def _tabla_capturas_disponible():
+    tabla = IPHCaptura.__table__
+    url = db.engine.url
+    base_datos = url.database
+    if not base_datos:
+        odbc_connect = url.query.get("odbc_connect", "")
+        coincidencia = re.search(r"(?:^|;)DATABASE\s*=\s*([^;]+)", odbc_connect, re.IGNORECASE)
+        base_datos = coincidencia.group(1) if coincidencia else "(no especificada en la URI)"
+    try:
+        disponible = inspect(db.engine).has_table(tabla.name, schema=tabla.schema)
+    except Exception:
+        current_app.logger.exception(
+            "No se pudo comprobar la tabla %s.%s en la base configurada %s",
+            tabla.schema,
+            tabla.name,
+            base_datos,
+        )
+        return False
+    if not disponible:
+        current_app.logger.error(
+            "Falta la tabla requerida %s.%s en la base configurada %s; "
+            "aplique backend/migrations/sqlserver/001_create_iph_capturas_web.sql.",
+            tabla.schema,
+            tabla.name,
+            base_datos,
+        )
+    return disponible
+
+
+@iph_bp.put("/<int:iph_id>/capturas/<string:pantalla>")
+@jwt_required()
+def guardar_captura_web(iph_id, pantalla):
+    if pantalla not in PANTALLAS_CAPTURA:
+        return jsonify({"msg": "Pantalla de captura no reconocida."}), 404
+    datos = request.get_json(silent=True)
+    if not isinstance(datos, dict):
+        return jsonify({"msg": "El cuerpo debe ser un objeto JSON."}), 400
+    try:
+        _validar_iph_legacy(iph_id)
+        if not _tabla_capturas_disponible():
+            return jsonify({"msg": "No se pudo guardar esta pantalla en el servidor."}), 503
+        captura = IPHCaptura.query.filter_by(iph_id=iph_id, pantalla=pantalla).first()
+        if captura is None:
+            captura = IPHCaptura(iph_id=iph_id, pantalla=pantalla)
+            db.session.add(captura)
+        captura.datos_json = json.dumps(datos, ensure_ascii=False, separators=(",", ":"))
+        _actualizar_estado_web(iph_id)
+        db.session.commit()
+        estado = (
+            IPHEstadoWeb.query.filter_by(iph_id=iph_id).first()
+            if _tabla_web_disponible(IPHEstadoWeb)
+            else None
+        )
+        return jsonify({"pantalla": pantalla, "datos": datos,
+                        "estado": estado.estado if estado else None}), 200
+    except HTTPException:
+        raise
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("No se pudo guardar la pantalla %s del IPH %s", pantalla, iph_id)
+        return jsonify({"msg": "No se pudo guardar esta pantalla en el servidor."}), 503
+
+
+@iph_bp.post("/<int:iph_id>/adjuntos")
+@jwt_required()
+def subir_adjunto(iph_id):
+    max_bytes = 50 * 1024 * 1024
+    archivo = request.files.get("file")
+    anexo = (request.form.get("anexo") or "").strip()
+    adjunto_id = (request.form.get("id") or "").strip()
+    if archivo is None or not archivo.filename:
+        return jsonify({"msg": "Selecciona un archivo para cargar."}), 400
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", adjunto_id):
+        return jsonify({"msg": "El identificador del archivo no es válido."}), 400
+    if not anexo or len(anexo) > 80:
+        return jsonify({"msg": "El anexo asociado no es válido."}), 400
+    nombre = secure_filename(archivo.filename)
+    extension = nombre.rsplit(".", 1)[-1].lower() if "." in nombre else ""
+    tipos_permitidos = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg", "bmp": "image/bmp", "png": "image/png",
+        "pdf": "application/pdf", "doc": "application/msword",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "mp3": "audio/mpeg", "wav": "audio/wav", "mp4": "video/mp4",
+        "mpeg": "video/mpeg", "mpg": "video/mpeg",
+    }
+    if extension not in tipos_permitidos:
+        return jsonify({"msg": "Tipo de archivo no permitido. Revisa los formatos aceptados por esta pantalla."}), 415
+    contenido = archivo.stream.read(max_bytes + 1)
+    if not contenido:
+        return jsonify({"msg": "El archivo está vacío."}), 400
+    if len(contenido) > max_bytes:
+        return jsonify({"msg": "El archivo supera el límite de 50 MB."}), 413
+    firmas_imagen = {"jpg": contenido.startswith(b"\xff\xd8\xff"), "jpeg": contenido.startswith(b"\xff\xd8\xff"),
+                     "bmp": contenido.startswith(b"BM"), "png": contenido.startswith(b"\x89PNG\r\n\x1a\n")}
+    if extension in firmas_imagen and not firmas_imagen[extension]:
+        return jsonify({"msg": "El contenido no coincide con el tipo de imagen indicado por el archivo."}), 415
+    try:
+        _validar_iph_legacy(iph_id)
+        adjunto = IPHAdjunto.query.filter_by(id=adjunto_id, iph_id=iph_id).first()
+        if adjunto is None:
+            adjunto = IPHAdjunto(id=adjunto_id, iph_id=iph_id, anexo=anexo, nombre=nombre,
+                                  mime_type=tipos_permitidos[extension],
+                                  tamano=len(contenido), contenido=contenido)
+            db.session.add(adjunto)
+        else:
+            adjunto.anexo, adjunto.nombre = anexo, nombre
+            adjunto.mime_type = tipos_permitidos[extension]
+            adjunto.tamano, adjunto.contenido = len(contenido), contenido
+        _actualizar_estado_web(iph_id)
+        db.session.commit()
+        return jsonify({"id": adjunto.id, "iphId": str(iph_id), "anexo": adjunto.anexo,
+                        "name": adjunto.nombre, "type": adjunto.mime_type, "size": adjunto.tamano}), 201
+    except HTTPException:
+        raise
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("No se pudo guardar el adjunto del IPH %s", iph_id)
+        return jsonify({"msg": "No se pudo guardar el archivo en el servidor."}), 503
+
+
+@iph_bp.get("/<int:iph_id>/adjuntos")
+@jwt_required()
+def listar_adjuntos(iph_id):
+    _validar_iph_legacy(iph_id)
+    query = IPHAdjunto.query.filter_by(iph_id=iph_id)
+    anexo = request.args.get("anexo")
+    if anexo:
+        query = query.filter_by(anexo=anexo)
+    return jsonify([{"id": a.id, "iphId": str(iph_id), "anexo": a.anexo,
+                     "name": a.nombre, "type": a.mime_type, "size": a.tamano}
+                    for a in query.order_by(IPHAdjunto.creado_en).all()]), 200
+
+
+@iph_bp.get("/<int:iph_id>/adjuntos/<string:adjunto_id>")
+@jwt_required()
+def descargar_adjunto(iph_id, adjunto_id):
+    adjunto = IPHAdjunto.query.filter_by(iph_id=iph_id, id=adjunto_id).first_or_404()
+    return send_file(BytesIO(adjunto.contenido), mimetype=adjunto.mime_type,
+                     as_attachment=True, download_name=adjunto.nombre)
+
+
+@iph_bp.delete("/<int:iph_id>/adjuntos/<string:adjunto_id>")
+@jwt_required()
+def eliminar_adjunto(iph_id, adjunto_id):
+    adjunto = IPHAdjunto.query.filter_by(iph_id=iph_id, id=adjunto_id).first_or_404()
+    db.session.delete(adjunto)
+    db.session.commit()
+    return jsonify({"msg": "Archivo eliminado."}), 200
+
+
+@iph_bp.patch("/<int:iph_id>/estado")
+@jwt_required()
+def actualizar_estado(iph_id):
+    datos = request.get_json(silent=True) or {}
+    estado = str(datos.get("estado", "")).strip().upper()
+    if estado not in ESTADOS_WEB:
+        return jsonify({"msg": "Estado no válido."}), 422
+    try:
+        _validar_iph_legacy(iph_id)
+        if not _tabla_web_disponible(IPHEstadoWeb):
+            return jsonify({"msg": "La tabla dbo.iph_estado_web no está instalada; no se puede actualizar el estado."}), 503
+        estado_actual = IPHEstadoWeb.query.filter_by(iph_id=iph_id).first()
+        if estado == "TERMINADA" and (estado_actual is None or estado_actual.estado != "ACTIVA"):
+            return jsonify({"msg": "Solo se puede terminar un IPH que ya está activo."}), 409
+        if estado_actual and estado_actual.estado == "TERMINADA" and estado != "TERMINADA":
+            return jsonify({"msg": "Un IPH terminado no puede volver a un estado anterior."}), 409
+        _actualizar_estado_web(iph_id, estado)
+        db.session.commit()
+        return jsonify({"id": iph_id, "estado": IPHEstadoWeb.query.get(iph_id).estado}), 200
+    except HTTPException:
+        raise
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("No se pudo actualizar el estado del IPH %s", iph_id)
+        return jsonify({"msg": "No se pudo actualizar el estado del IPH."}), 503
+
+
 # ---------------------------------------------------------------------------
 # Exportación a PDF
 # ---------------------------------------------------------------------------
 
+def _campos_pdf_validos(datos):
+    if not isinstance(datos, dict):
+        return None
+    campos_validos = {}
+    for modulo, campos in datos.items():
+        if not isinstance(modulo, str) or len(modulo) > 80 or not isinstance(campos, list) or len(campos) > 200:
+            return None
+        normalizados = []
+        for campo in campos:
+            if not isinstance(campo, dict):
+                return None
+            etiqueta = campo.get("label", "")
+            valor = campo.get("value", "")
+            if not isinstance(etiqueta, str) or not isinstance(valor, str) or len(etiqueta) > 1000 or len(valor) > 20000:
+                return None
+            normalizados.append({"label": etiqueta, "value": valor})
+        campos_validos[modulo] = normalizados
+    return campos_validos
+
+
+def _capturas_pdf(iph_id):
+    if not _tabla_capturas_disponible():
+        current_app.logger.warning(
+            "Se genera vista previa sin capturas persistidas para el IPH %s; "
+            "la tabla dbo.iph_capturas_web aún no está disponible.",
+            iph_id,
+        )
+        return {}
+    capturas = {}
+    for captura in IPHCaptura.query.filter_by(iph_id=iph_id).all():
+        datos = json.loads(captura.datos_json)
+        if not isinstance(datos, dict):
+            raise ValueError(f"La captura {captura.pantalla} no contiene un objeto JSON.")
+        capturas[captura.pantalla] = datos
+    return capturas
+
+
+def _registro_legacy_para_pdf(iph_id):
+    fila = _fetch_one(
+        "SELECT TOP 1 * FROM IPH WHERE ID_IPH = ?",
+        (iph_id,),
+        raise_errors=True,
+    )
+    if fila is None:
+        abort(404, description="IPH no encontrado.")
+
+    registro = SimpleNamespace(
+        id=iph_id,
+        folio_interno=_pick_value(fila, "IPH", "FOLIO_INTERNO", "FOLIO") or "",
+        no_referencia=_pick_value(fila, "NO_REFERENCIA", "NUMERO_REFERENCIA"),
+        no_expediente=_pick_value(fila, "NO_EXPEDIENTE", "NUC"),
+        fecha_puesta_disposicion=_pick_value(
+            fila,
+            "FECHA_PUESTA_DISPOSICION",
+            "FECHA_IPH",
+            "FECHA_REGISTRO",
+        ),
+        hora_puesta_disposicion=_pick_value(fila, "HORA_PUESTA_DISPOSICION", "HORA_IPH"),
+        institucion=_pick_value(fila, "INSTITUCION", "INSTITUCION_IPH"),
+        adscripcion=_pick_value(fila, "ADSCRIPCION", "UNIDAD", "UNDD_DSCRPCION"),
+        cargo=_pick_value(fila, "CARGO", "GRADO", "CARGO_IPH", "PUESTO"),
+        estado=_pick_value(fila, "ESTADO", "ESTADO_IPH", "ESTATUS") or "EN_TRAMITE",
+        datos_legacy=fila,
+        policias=[],
+        conocimiento_hecho=None,
+        acta_noticia=None,
+        inspeccion_lugar=None,
+        narracion_primer_respondiente=None,
+        denunciantes=[],
+        ofendidos=[],
+        victimas=[],
+        testigos=[],
+        imputados=[],
+        inspecciones_vehiculo=[],
+        acciones_realizadas=[],
+        actuaciones=[],
+    )
+    return registro
+
+
+def _crear_respuesta_pdf(registro, campos_por_modulo=None, as_attachment=True):
+    try:
+        documento = generar_pdf_iph(
+            registro,
+            capturas=_capturas_pdf(registro.id),
+            campos_por_modulo=campos_por_modulo,
+        )
+    except Exception:
+        current_app.logger.exception("No se pudo generar el PDF del IPH %s", registro.id)
+        return jsonify({"msg": "No se pudo generar el PDF del IPH."}), 500
+    return send_file(
+        documento,
+        as_attachment=as_attachment,
+        download_name=f"IPH_{registro.folio_interno}.pdf",
+        mimetype="application/pdf",
+    )
+
+
+def _estado_terminado(iph_id):
+    if not _tabla_web_disponible(IPHEstadoWeb):
+        return False, jsonify({"msg": "No se puede confirmar el estado final del IPH."}), 503
+    estado = IPHEstadoWeb.query.filter_by(iph_id=iph_id).first()
+    if estado is None or estado.estado != "TERMINADA":
+        return False, jsonify({"msg": "El PDF final solo está disponible después de confirmar que el IPH está terminado."}), 409
+    return True, None, None
+
+
+@iph_bp.post("/<int:iph_id>/previsualizar-pdf")
+@jwt_required()
+def previsualizar_pdf(iph_id):
+    try:
+        registro = _registro_legacy_para_pdf(iph_id)
+    except HTTPException:
+        raise
+    except Exception:
+        current_app.logger.exception("No se pudo leer el IPH %s para la vista previa", iph_id)
+        return jsonify({"msg": "No se pudo consultar el IPH para la vista previa."}), 503
+    datos = request.get_json(silent=True) or {}
+    if not isinstance(datos, dict):
+        return jsonify({"msg": "El cuerpo debe contener los campos actuales de la vista previa."}), 400
+    campos_por_modulo = _campos_pdf_validos(datos.get("camposPorModulo", {}))
+    if campos_por_modulo is None:
+        return jsonify({"msg": "Los campos de la vista previa tienen un formato no válido."}), 400
+    return _crear_respuesta_pdf(registro, campos_por_modulo, as_attachment=False)
+
+
+@iph_bp.post("/<int:iph_id>/capturas/<string:pantalla>/previsualizar-pdf")
+@jwt_required()
+def previsualizar_pdf_pantalla(iph_id, pantalla):
+    if pantalla not in PANTALLAS_PREVISUALIZABLES:
+        return jsonify({"msg": "Pantalla de captura no reconocida para vista previa."}), 404
+    try:
+        registro = _registro_legacy_para_pdf(iph_id)
+    except HTTPException:
+        raise
+    except Exception:
+        current_app.logger.exception("No se pudo leer el IPH %s para la vista previa", iph_id)
+        return jsonify({"msg": "No se pudo consultar el IPH para la vista previa."}), 503
+    datos = request.get_json(silent=True) or {}
+    if not isinstance(datos, dict):
+        return jsonify({"msg": "No se recibieron los datos actuales de la pantalla."}), 400
+    campos_por_modulo = _campos_pdf_validos(datos.get("camposPorModulo", {}))
+    if campos_por_modulo is None:
+        return jsonify({"msg": "Los campos de la vista previa tienen un formato no válido."}), 400
+    return _crear_respuesta_pdf(registro, campos_por_modulo, as_attachment=False)
+
+
 @iph_bp.get("/<int:iph_id>/exportar-pdf")
 @jwt_required()
 def exportar_pdf(iph_id):
-    registro = IPH.query.get_or_404(iph_id)
-    ruta_pdf = generar_pdf_iph(registro)
-    nombre_descarga = f"IPH_{registro.folio_interno}.pdf"
-    return send_file(ruta_pdf, as_attachment=True, download_name=nombre_descarga, mimetype="application/pdf")
+    registro = _registro_legacy_para_pdf(iph_id)
+    terminado, respuesta, codigo = _estado_terminado(iph_id)
+    if not terminado:
+        return respuesta, codigo
+    return _crear_respuesta_pdf(registro)
+
+
+@iph_bp.post("/<int:iph_id>/exportar-pdf")
+@jwt_required()
+def exportar_pdf_final(iph_id):
+    registro = _registro_legacy_para_pdf(iph_id)
+    terminado, respuesta, codigo = _estado_terminado(iph_id)
+    if not terminado:
+        return respuesta, codigo
+    datos = request.get_json(silent=True)
+    if not isinstance(datos, dict):
+        return jsonify({"msg": "El cuerpo debe contener los campos actuales del formulario."}), 400
+    campos_por_modulo = _campos_pdf_validos(datos.get("camposPorModulo", {}))
+    if campos_por_modulo is None:
+        return jsonify({"msg": "Los campos del formulario tienen un formato no válido."}), 400
+    return _crear_respuesta_pdf(registro, campos_por_modulo)
