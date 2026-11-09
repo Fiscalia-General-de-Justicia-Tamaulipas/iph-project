@@ -16,6 +16,7 @@ modificar (los blueprints ya consumen estos modelos mediante los servicios).
 
 from datetime import datetime
 from app.extensions import db
+from sqlalchemy.dialects.mssql import DATETIME2, VARBINARY
 
 
 ESTADOS_MODULO = ("PENDIENTE", "EN_PROCESO", "COMPLETADO")
@@ -451,19 +452,15 @@ class IPHCaptura(db.Model):
     __tablename__ = "iph_capturas_web"
     __table_args__ = (
         db.UniqueConstraint("iph_id", "pantalla", name="uq_iph_captura_pantalla"),
+        db.Index("IX_iph_capturas_web_iph_id", "iph_id"),
         {"schema": "dbo"},
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    iph_id = db.Column(
-        db.Integer,
-        db.ForeignKey("dbo.iph.ID_IPH", name="FK_iph_capturas_web_iph"),
-        nullable=False,
-        index=True,
-    )
-    pantalla = db.Column(db.String(80), nullable=False)
-    datos_json = db.Column(db.Text, nullable=False)
-    actualizado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    iph_id = db.Column(db.Integer, nullable=False)
+    pantalla = db.Column(db.Unicode(80), nullable=False)
+    datos_json = db.Column(db.Unicode, nullable=False)
+    actualizado_en = db.Column(DATETIME2, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class IPHEstadoWeb(db.Model):
@@ -471,21 +468,24 @@ class IPHEstadoWeb(db.Model):
     __tablename__ = "iph_estado_web"
     __table_args__ = {"schema": "dbo"}
 
-    iph_id = db.Column(db.Integer, primary_key=True)
-    estado = db.Column(db.String(20), nullable=False, default="EN_TRAMITE")
-    actualizado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    iph_id = db.Column(db.Integer, primary_key=True, autoincrement=False)
+    estado = db.Column(db.Unicode(20), nullable=False, default="EN_TRAMITE")
+    actualizado_en = db.Column(DATETIME2, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class IPHAdjunto(db.Model):
     """Adjunto asociado a un IPH, almacenado en SQL Server para compartirlo entre equipos."""
     __tablename__ = "iph_adjuntos_web"
-    __table_args__ = {"schema": "dbo"}
+    __table_args__ = (
+        db.Index("IX_iph_adjuntos_web_iph_id", "iph_id"),
+        {"schema": "dbo"},
+    )
 
-    id = db.Column(db.String(100), primary_key=True)
-    iph_id = db.Column(db.Integer, nullable=False, index=True)
-    anexo = db.Column(db.String(80), nullable=False)
-    nombre = db.Column(db.String(255), nullable=False)
-    mime_type = db.Column(db.String(100), nullable=False)
+    id = db.Column(db.Unicode(100), primary_key=True)
+    iph_id = db.Column(db.Integer, nullable=False)
+    anexo = db.Column(db.Unicode(80), nullable=False)
+    nombre = db.Column(db.Unicode(255), nullable=False)
+    mime_type = db.Column(db.Unicode(100), nullable=False)
     tamano = db.Column(db.BigInteger, nullable=False)
-    contenido = db.Column(db.LargeBinary, nullable=False)
-    creado_en = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    contenido = db.Column(VARBINARY(None), nullable=False)
+    creado_en = db.Column(DATETIME2, nullable=False, default=datetime.utcnow)
