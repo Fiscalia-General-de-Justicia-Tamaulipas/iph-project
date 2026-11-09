@@ -35,7 +35,7 @@
         </div>
       </div>
 
-      <div class="grid md:grid-cols-2 gap-4">
+      <div class="grid md:grid-cols-2 gap-">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">¿SE ENCONTRÓ OBJETO?</label>
           <select v-model="form.encontro_objeto" class="w-full border rounded-md px-3 py-2">

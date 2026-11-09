@@ -119,6 +119,8 @@
           <div
             v-if="seccionActiva.modulos.length"
             class="iph-section-content"
+            @focusin="activarDictadoEnCampo"
+            @focusout="limpiarDictadoEnCampo"
             @input="actualizarCamposVistaPrevia"
             @change="actualizarCamposVistaPrevia"
             @click="capturarDespuesDeAccion"
@@ -162,6 +164,7 @@
               modificarán los datos existentes.
             </p>
           </div>
+          <DictadoVoz :target="campoDictado" />
         </section>
 
         <section class="iph-preview-card" aria-labelledby="iph-preview-title">
@@ -210,6 +213,7 @@ import BitacoraForm from "./modulos/BitacoraForm.vue";
 import NarracionPrimerRespondienteForm from "./modulos/NarracionPrimerRespondienteForm.vue";
 import ActuacionesForm from "./modulos/ActuacionesForm.vue";
 import PuestaDisposicionForm from "./modulos/PuestaDisposicionForm.vue";
+import DictadoVoz from "../components/DictadoVoz.vue";
 
 const props = defineProps({
   id: { type: [String, Number], required: true },
@@ -218,6 +222,27 @@ const props = defineProps({
 
 const router = useRouter();
 const auth = useAuthStore();
+const campoDictado = ref(null);
+
+function activarDictadoEnCampo(event) {
+  const elemento = event.target;
+  if (!(elemento instanceof HTMLInputElement || elemento instanceof HTMLTextAreaElement)) {
+    campoDictado.value = null;
+    return;
+  }
+
+  const esCampoTexto = elemento instanceof HTMLTextAreaElement
+    || elemento.type === "text"
+    || elemento.type === "";
+  campoDictado.value = esCampoTexto && !elemento.disabled && !elemento.readOnly
+    ? elemento
+    : null;
+}
+
+function limpiarDictadoEnCampo(event) {
+  if (event.relatedTarget?.closest?.(".iph-dictation-control")) return;
+  campoDictado.value = null;
+}
 const iphId = computed(() => props.id);
 const iph = ref(null);
 const exportando = ref(false);

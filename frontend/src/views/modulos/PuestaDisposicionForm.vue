@@ -106,7 +106,9 @@
         </div>
         <div class="disposicion-wide">
           <label for="responsable-cargo">Cargo/Grado *</label>
-          <input id="responsable-cargo" v-model="form.responsable.cargo" required maxlength="120" />
+          <select id="responsable-cargo" v-model="form.responsable.cargo" required>
+            <option value="Policía investigadora">Policía investigadora</option>
+          </select>
         </div>
         <fieldset class="disposicion-radio-group">
           <legend>Firma *</legend>
@@ -133,7 +135,9 @@
         </div>
         <div class="disposicion-wide">
           <label for="receptor-institucion">Fiscalía/Autoridad *</label>
-          <input id="receptor-institucion" v-model="form.receptor.institucion" required maxlength="200" />
+          <select id="receptor-institucion" v-model="form.receptor.institucion" required>
+            <option value="Fiscalía General de Justicia">Fiscalía General de Justicia</option>
+          </select>
         </div>
         <div class="disposicion-wide">
           <label for="receptor-adscripcion">Adscripción *</label>
@@ -141,7 +145,9 @@
         </div>
         <div class="disposicion-wide">
           <label for="receptor-cargo">Cargo *</label>
-          <input id="receptor-cargo" v-model="form.receptor.cargo" required maxlength="120" />
+          <select id="receptor-cargo" v-model="form.receptor.cargo" required>
+            <option value="Policía Investigadora">Policía Investigadora</option>
+          </select>
         </div>
         <fieldset class="disposicion-radio-group">
           <legend>Firma *</legend>
@@ -222,7 +228,7 @@ const props = defineProps({
   iphId: { type: [String, Number], required: true },
   iph: { type: Object, default: null },
 });
-const emit = defineEmits(["siguiente", "anexos-actualizados"]);
+const emit = defineEmits(["guardado", "siguiente", "anexos-actualizados"]);
 
 const anexos = [
   { clave: "A", nombre: "Anexo A. Detención(es)", obligatorio: true },
@@ -262,16 +268,16 @@ function crearBorrador() {
       segundo_apellido: "",
       nombres: "",
       adscripcion: "",
-      cargo: "",
+      cargo: "Policía investigadora",
       firma: "",
     },
     receptor: {
       primer_apellido: "",
       segundo_apellido: "",
       nombres: "",
-      institucion: "",
+      institucion: "Fiscalía General de Justicia",
       adscripcion: "",
-      cargo: "",
+      cargo: "Policía Investigadora",
       firma: "",
       sello: "",
     },
@@ -346,6 +352,7 @@ async function guardar() {
     await guardarCaptura(props.iphId, "puesta_disposicion", form.value);
     avancesGuardados.value = true;
     mensaje.value = "Avances guardados en el servidor.";
+    emit("guardado");
     return true;
   } catch (error) {
     avancesGuardados.value = false;
