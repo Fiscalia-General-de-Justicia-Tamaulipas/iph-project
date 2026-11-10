@@ -16,60 +16,33 @@
           <input id="disposicion-expediente" v-model="form.no_expediente" type="text" maxlength="80" />
         </div>
       </div>
-      <div class="disposicion-annex-grid">
-        <div
-          v-for="anexo in anexos"
-          :key="anexo.clave"
-          class="disposicion-annex-row"
-          :class="{ 'disposicion-annex-row-d': anexo.clave === 'D' }"
-        >
-          <label :for="`anexo-${anexo.clave}`">
-            {{ anexo.nombre }}<span v-if="anexo.obligatorio">*</span>
-          </label>
-          <select
-            :id="`anexo-${anexo.clave}`"
-            v-model="form.anexos[anexo.clave].entregado"
-            :disabled="form.sin_anexos"
-            :aria-label="`${anexo.nombre}: ¿se entrega?`"
-            @change="actualizarCadena(anexo.clave, $event.target.value)"
-          >
-            <option value="NO">NO</option>
-            <option value="SI">SI</option>
-          </select>
-          <template v-if="anexo.clave === 'A' || anexo.clave === 'C' || anexo.clave === 'E'">
-            <input
-              v-model.number="form.anexos[anexo.clave].cantidad"
-              type="number"
-              min="0"
-              :disabled="form.sin_anexos || form.anexos[anexo.clave].entregado !== 'SI'"
-              :aria-label="`Cantidad de registros del anexo ${anexo.clave}`"
-            />
-          </template>
-          <template v-else-if="anexo.clave === 'D'">
-            <input
-              v-model.number="form.anexos.D.armas"
-              type="number"
-              min="0"
-              :disabled="form.sin_anexos || form.anexos.D.entregado !== 'SI'"
-              aria-label="Cantidad de armas"
-            />
-            <input
-              v-model.number="form.anexos.D.objetos"
-              type="number"
-              min="0"
-              :disabled="form.sin_anexos || form.anexos.D.entregado !== 'SI'"
-              aria-label="Cantidad de objetos"
-            />
-          </template>
-        </div>
+      <Transition name="annex-assistant" @after-enter="enfocarAnexoActual">
+        <section v-if="!form.sin_anexos && anexoActual" :key="anexoActual.clave" class="disposicion-annex-assistant" aria-live="polite">
+          <p class="disposicion-annex-progress">Anexo {{ indiceAnexoActual + 1 }} de {{ anexos.length }}</p>
+          <h3>{{ anexoActual.nombre }}</h3>
+          <fieldset class="disposicion-annex-answer">
+            <legend>¿Se entrega este anexo?</legend>
+            <label><input :id="`anexo-${anexoActual.clave}-si`" v-model="form.anexos[anexoActual.clave].entregado" type="radio" value="SI" required @change="enfocarCantidad" /> Sí</label>
+            <label><input v-model="form.anexos[anexoActual.clave].entregado" type="radio" value="NO" required @change="continuarAnexo" /> No</label>
+          </fieldset>
+          <div v-if="form.anexos[anexoActual.clave].entregado === 'SI'" class="disposicion-annex-quantity">
+            <label :for="`cantidad-${anexoActual.clave}`">Cantidad *</label>
+            <input :id="`cantidad-${anexoActual.clave}`" ref="campoCantidad" v-model.number="form.anexos[anexoActual.clave].cantidad" type="number" min="1" required />
+            <button type="button" class="disposicion-save-button" @click="continuarAnexo">Continuar</button>
+          </div>
+        </section>
+      </Transition>
+      <div class="disposicion-annex-chips" aria-label="Anexos respondidos">
+        <button v-for="item in anexosRespondidos" :key="item.clave" type="button" class="disposicion-annex-chip" @click="editarAnexo(item.clave)">{{ item.clave }} · {{ item.nombre }}: {{ item.entregado === 'SI' ? `SÍ (${item.cantidad})` : 'NO' }}</button>
       </div>
+      <p v-if="!anexoActual && !form.sin_anexos" class="disposicion-annex-summary" aria-live="polite">Anexos A–G respondidos. Continúa con la documentación complementaria.</p>
 
       <label class="disposicion-check disposicion-no-annexes">
         <input v-model="form.sin_anexos" type="checkbox" @change="actualizarAnexos" />
         No se entregan Anexos
       </label>
 
-      <div class="disposicion-docs">
+      <div v-if="!anexoActual" class="disposicion-docs">
         <label for="documentacion-complementaria">¿Anexa documentación complementaria? *</label>
         <select id="documentacion-complementaria" v-model="form.documentacion_complementaria">
           <option value="NO">NO</option>
@@ -80,6 +53,7 @@
           <label v-for="documento in tiposDocumentacion" :key="documento" class="disposicion-check">
             <input v-model="form.tipos_documentacion" type="checkbox" :value="documento" />
             {{ documento }}
+            <input v-if="documento === 'Otra' && form.tipos_documentacion.includes('Otra')" v-model="form.tipo_documentacion_otra" type="text" maxlength="120" aria-label="¿Cuál?" placeholder="¿Cuál?" />
           </label>
         </fieldset>
       </div>
@@ -220,7 +194,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { leerCaptura, guardarCaptura } from "../../store/capturas";
 import { eliminarAdjunto, guardarAdjunto, listarAdjuntos, obtenerAdjunto } from "../../store/attachments";
 
@@ -237,8 +211,13 @@ const anexos = [
   { clave: "D", nombre: "Anexo D. Inventario de armas y objetos", obligatorio: true },
   { clave: "E", nombre: "Anexo E. Entrevistas", obligatorio: true },
   { clave: "F", nombre: "Anexo F. Entrega-recepción del lugar de intervención", obligatorio: true },
+  { clave: "G", nombre: "Anexo G. Continuación de narrativa", obligatorio: true },
 ];
 const tiposDocumentacion = ["Fotografías", "Videos", "Audio", "Certificados médicos", "Otra"];
+const campoCantidad = ref(null);
+const indiceAnexoActual = computed(() => anexos.findIndex(({ clave }) => !form.value.anexos[clave].respondido));
+const anexoActual = computed(() => anexos[indiceAnexoActual.value] || null);
+const anexosRespondidos = computed(() => anexos.filter(({ clave }) => form.value.anexos[clave].respondido).map(({ clave, nombre }) => ({ ...form.value.anexos[clave], clave, nombre: nombre.replace(/^Anexo [A-G]\. /, "") })));
 const formulario = ref(null);
 const selectorArchivo = ref(null);
 const archivos = ref([]);
@@ -254,15 +233,17 @@ function crearBorrador() {
     no_expediente: props.iph?.no_expediente || "",
     sin_anexos: false,
     anexos: {
-      A: { entregado: "NO", cantidad: 0 },
-      B: { entregado: "NO", cantidad: 0 },
-      C: { entregado: "NO", cantidad: 0 },
-      D: { entregado: "NO", armas: 0, objetos: 0 },
-      E: { entregado: "NO", cantidad: 0 },
-      F: { entregado: "NO", cantidad: 0 },
+      A: { entregado: "", cantidad: 0, respondido: false },
+      B: { entregado: "", cantidad: 0, respondido: false },
+      C: { entregado: "", cantidad: 0, respondido: false },
+      D: { entregado: "", cantidad: 0, respondido: false },
+      E: { entregado: "", cantidad: 0, respondido: false },
+      F: { entregado: "", cantidad: 0, respondido: false },
+      G: { entregado: "", cantidad: 0, respondido: false },
     },
     documentacion_complementaria: "NO",
     tipos_documentacion: [],
+    tipo_documentacion_otra: "",
     responsable: {
       primer_apellido: "",
       segundo_apellido: "",
@@ -296,19 +277,16 @@ function notificarAnexos() {
 
 function limpiarAnexo(anexo) {
   form.value.anexos[anexo.clave].entregado = "NO";
-  if ("cantidad" in form.value.anexos[anexo.clave]) form.value.anexos[anexo.clave].cantidad = 0;
-  if (anexo.clave === "D") {
-    form.value.anexos.D.armas = 0;
-    form.value.anexos.D.objetos = 0;
-  }
+  form.value.anexos[anexo.clave].cantidad = 0;
+  form.value.anexos[anexo.clave].respondido = true;
 }
 
 function normalizarCadena() {
-  for (let index = 0; index < anexos.length - 1; index += 1) {
-    if (form.value.anexos[anexos[index].clave].entregado !== "SI") {
-      for (const anexoSiguiente of anexos.slice(index + 1)) limpiarAnexo(anexoSiguiente);
-      break;
-    }
+  for (const { clave } of anexos) {
+    const dato = form.value.anexos[clave];
+    dato.respondido = dato.respondido ?? Boolean(dato.entregado);
+    dato.cantidad = dato.cantidad ?? (Number(dato.armas || 0) + Number(dato.objetos || 0));
+    if (dato.entregado === "SI" && Number(dato.cantidad) < 1) dato.cantidad = 1;
   }
 }
 
@@ -363,21 +341,51 @@ async function guardar() {
 
 async function guardarYSiguiente() {
   if (!formulario.value?.reportValidity()) return;
+  if (!form.value.sin_anexos && anexos.some(({ clave }) => !form.value.anexos[clave].respondido)) {
+    errorGuardado.value = "Responde todos los anexos antes de avanzar.";
+    return;
+  }
+  if (form.value.documentacion_complementaria === "SI" && form.value.tipos_documentacion.includes("Otra") && !form.value.tipo_documentacion_otra.trim()) {
+    errorGuardado.value = "Indica cuál es la documentación complementaria seleccionada como Otra.";
+    return;
+  }
   if (await guardar()) emit("siguiente");
 }
 
 function actualizarAnexos() {
-  if (!form.value.sin_anexos) return;
-  for (const anexo of anexos) limpiarAnexo(anexo);
+  if (form.value.sin_anexos) for (const anexo of anexos) limpiarAnexo(anexo);
+  else for (const { clave } of anexos) form.value.anexos[clave].respondido = false;
   notificarAnexos();
 }
 
-function actualizarCadena(clave, valorSeleccionado) {
-  if (valorSeleccionado !== "SI") {
-    const index = anexos.findIndex((anexo) => anexo.clave === clave);
-    for (const anexoSiguiente of anexos.slice(index + 1)) limpiarAnexo(anexoSiguiente);
+async function enfocarCantidad() {
+  await nextTick();
+  campoCantidad.value?.focus();
+}
+
+function enfocarAnexoActual() {
+  if (anexoActual.value) document.getElementById(`anexo-${anexoActual.value.clave}-si`)?.focus();
+}
+
+function continuarAnexo() {
+  const actual = anexoActual.value;
+  if (!actual) return;
+  const dato = form.value.anexos[actual.clave];
+  if (dato.entregado === "SI" && (!Number.isInteger(Number(dato.cantidad)) || Number(dato.cantidad) < 1)) {
+    campoCantidad.value?.focus();
+    campoCantidad.value?.reportValidity();
+    return;
   }
+  if (!dato.entregado) return;
+  if (dato.entregado === "NO") dato.cantidad = 0;
+  dato.respondido = true;
   notificarAnexos();
+}
+
+async function editarAnexo(clave) {
+  form.value.anexos[clave].respondido = false;
+  await nextTick();
+  enfocarAnexoActual();
 }
 
 async function agregarArchivo(event) {

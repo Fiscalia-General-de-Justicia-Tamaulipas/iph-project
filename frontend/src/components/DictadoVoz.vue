@@ -10,9 +10,9 @@
         type="button"
         class="iph-dictation-button"
         :disabled="status === 'checking' || status === 'starting' || status === 'unsupported' || status === 'stopping'"
-        :aria-label="status === 'listening' ? 'Detener dictado' : 'Iniciar dictado local en español de México'"
+        :aria-label="status === 'listening' ? 'Detener dictado' : 'Iniciar dictado en español'"
         :aria-pressed="status === 'listening'"
-        :title="status === 'listening' ? 'Detener dictado' : 'Dictado local en español de México'"
+        :title="status === 'listening' ? 'Detener dictado' : 'Dictado en español'"
         @click="alternarDictado"
       >
         <svg v-if="status !== 'listening'" viewBox="0 0 24 24" aria-hidden="true">
@@ -53,6 +53,8 @@ let positionFrame = 0;
 let processedResults = new Map();
 let activeSessionStop = null;
 let boundTarget = null;
+let idiomaActual = 0;
+const idiomas = ["es-MX", "es-US", "es-ES"];
 
 function obtenerConstructor() {
   if (typeof window === "undefined") return null;
@@ -65,51 +67,22 @@ function setError(message) {
   textoParcial.value = "";
 }
 
-async function comprobarDisponibilidadLocal(target, currentRequest) {
+async function comprobarDisponibilidad(target, currentRequest) {
   recognitionConstructor = null;
   status.value = "checking";
-  mensaje.value = "Verificando dictado local es-MX…";
+  mensaje.value = "Verificando soporte de dictado…";
   textoParcial.value = "";
 
   const Constructor = obtenerConstructor();
-  if (!Constructor || typeof Constructor.available !== "function") {
+  if (!Constructor) {
     status.value = "unsupported";
-    mensaje.value = "Este navegador no ofrece reconocimiento local de voz. No se enviará audio a un servicio remoto.";
+    mensaje.value = "Este navegador no admite SpeechRecognition. Puedes continuar escribiendo.";
     return;
   }
-
-  try {
-    const probe = new Constructor();
-    if (!("processLocally" in probe)) {
-      status.value = "unsupported";
-      mensaje.value = "Este navegador no permite exigir procesamiento local. El dictado está deshabilitado.";
-      return;
-    }
-
-    const availability = await Constructor.available({
-      langs: ["es-MX"],
-      processLocally: true,
-      quality: "dictation",
-    });
-
-    if (currentRequest !== requestId || props.target !== target) return;
-
-    if (availability !== "available") {
-      status.value = "unsupported";
-      mensaje.value = availability === "downloadable" || availability === "downloading"
-        ? "El paquete local es-MX no está listo. No se descargará automáticamente."
-        : "El reconocimiento local es-MX no está disponible en este navegador.";
-      return;
-    }
-
-    recognitionConstructor = Constructor;
-    status.value = "ready";
-    mensaje.value = "Dictado local es-MX disponible.";
-  } catch {
-    if (currentRequest !== requestId || props.target !== target) return;
-    status.value = "unsupported";
-    mensaje.value = "No se pudo comprobar el dictado local es-MX. No se utilizará un servicio remoto.";
-  }
+  if (currentRequest !== requestId || props.target !== target) return;
+  recognitionConstructor = Constructor;
+  status.value = "ready";
+  mensaje.value = "Dictado disponible; se intentará es-MX y luego es-US/es-ES. El navegador puede procesar audio mediante su servicio de voz.";
 }
 
 function insertarTexto(transcript, currentRecognition) {
@@ -191,25 +164,25 @@ function explicarError(errorCode) {
   switch (errorCode) {
     case "not-allowed":
     case "service-not-allowed":
-      return "El navegador no concedió permiso para usar el micrófono o el reconocimiento local.";
+      return "Permiso de micrófono denegado. Autoriza el micrófono en el navegador y vuelve a intentar.";
     case "audio-capture":
       return "No se encontró un micrófono disponible.";
+    case "network":
+      return "Falló el servicio de reconocimiento o no hay conexión de red. Revisa la conexión o usa dictado on-premise.";
     case "language-not-supported":
     case "language-unavailable":
-      return "El navegador no tiene reconocimiento local disponible para es-MX.";
-    case "network":
-      return "El reconocimiento local no pudo completarse. No se cambiará a un servicio remoto.";
+      return "El navegador no admite los idiomas es-MX, es-US ni es-ES.";
     case "no-speech":
       return "No se detectó voz. Puedes volver a intentarlo.";
     default:
-      return "Ocurrió un error en el dictado local. Puedes continuar escribiendo manualmente.";
+      return "Ocurrió un error durante el dictado. Puedes continuar escribiendo manualmente.";
   }
 }
 
 function iniciarDictado() {
   if (!recognitionConstructor || !props.target || status.value === "checking") return;
   if (typeof window !== "undefined" && !window.isSecureContext) {
-    setError("El micrófono requiere una conexión segura (HTTPS) o localhost.");
+    setError("El micrófono requiere HTTPS. Para pruebas locales, usa localhost o el flag de Chrome --unsafely-treat-insecure-origin-as-secure=http://HOST:8080 (solo desarrollo). Puedes seguir escribiendo.");
     return;
   }
 
@@ -218,22 +191,8 @@ function iniciarDictado() {
 
   try {
     const currentRecognition = new recognitionConstructor();
-    if (!("processLocally" in currentRecognition)) {
-      status.value = "unsupported";
-      mensaje.value = "Este navegador no permite exigir procesamiento local. El dictado está deshabilitado.";
-      recognitionConstructor = null;
-      return;
-    }
-
-    currentRecognition.processLocally = true;
-    if (currentRecognition.processLocally !== true) {
-      status.value = "unsupported";
-      mensaje.value = "No se pudo exigir procesamiento local. El dictado está deshabilitado.";
-      recognitionConstructor = null;
-      return;
-    }
-
-    currentRecognition.lang = "es-MX";
+    idiomaActual = 0;
+    currentRecognition.lang = idiomas[idiomaActual];
     currentRecognition.continuous = true;
     currentRecognition.interimResults = true;
     currentRecognition.maxAlternatives = 1;
@@ -268,6 +227,16 @@ function iniciarDictado() {
 
     currentRecognition.onerror = (event) => {
       if (recognition !== currentRecognition) return;
+      if (["language-not-supported", "language-unavailable"].includes(event.error) && idiomaActual < idiomas.length - 1) {
+        const siguienteIdioma = idiomas[idiomaActual + 1];
+        const target = props.target;
+        abortarDictado(true);
+        idiomaActual += 1;
+        mensaje.value = `es-MX no disponible; intentando ${siguienteIdioma}…`;
+        status.value = "starting";
+        iniciarConIdioma(target, siguienteIdioma);
+        return;
+      }
       setError(explicarError(event.error));
     };
 
@@ -283,7 +252,7 @@ function iniciarDictado() {
     };
 
     status.value = "starting";
-    mensaje.value = "Iniciando reconocimiento local…";
+    mensaje.value = `Iniciando reconocimiento (${idiomas[idiomaActual]})…`;
     currentRecognition.start();
   } catch {
     if (recognition) {
@@ -297,7 +266,7 @@ function iniciarDictado() {
       }
     }
     if (activeSessionStop === stopActiveSession) activeSessionStop = null;
-    setError("No se pudo iniciar el reconocimiento local. Revisa el permiso del micrófono y la conexión segura.");
+    setError("No se pudo iniciar el reconocimiento. Revisa el permiso del micrófono, HTTPS y la conexión.");
   }
 }
 
@@ -308,6 +277,39 @@ function alternarDictado() {
   }
   if (status.value === "ready" || status.value === "stopped" || status.value === "error") {
     iniciarDictado();
+  }
+}
+
+function iniciarConIdioma(target, idioma) {
+  try {
+    const currentRecognition = new recognitionConstructor();
+    currentRecognition.lang = idioma;
+    currentRecognition.continuous = true;
+    currentRecognition.interimResults = true;
+    recognition = currentRecognition;
+    boundTarget = target;
+    activeSessionStop = stopActiveSession;
+    currentRecognition.onstart = () => { if (recognition === currentRecognition) { status.value = "listening"; mensaje.value = `Escuchando (${idioma})…`; } };
+    currentRecognition.onresult = (event) => {
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        if (event.results[index]?.isFinal) insertarTexto(event.results[index][0]?.transcript, currentRecognition);
+        else textoParcial.value = event.results[index]?.[0]?.transcript || "";
+      }
+    };
+    currentRecognition.onerror = (event) => {
+      if (recognition !== currentRecognition) return;
+      if (["language-not-supported", "language-unavailable"].includes(event.error) && idiomaActual < idiomas.length - 1) {
+        const siguienteIdioma = idiomas[++idiomaActual];
+        abortarDictado(true);
+        status.value = "starting";
+        mensaje.value = `Intentando ${siguienteIdioma}…`;
+        iniciarConIdioma(target, siguienteIdioma);
+      } else setError(explicarError(event.error));
+    };
+    currentRecognition.onend = () => { if (recognition === currentRecognition) { recognition = null; status.value = "stopped"; mensaje.value = "Dictado detenido."; } };
+    currentRecognition.start();
+  } catch {
+    setError("No se pudo iniciar el micrófono. Revisa permiso, HTTPS y disponibilidad del dispositivo.");
   }
 }
 
@@ -341,7 +343,7 @@ watch(() => props.target, (target, previousTarget) => {
 
   target.classList?.add("iph-dictation-target");
   actualizarPosicion();
-  comprobarDisponibilidadLocal(target, currentRequest);
+  comprobarDisponibilidad(target, currentRequest);
 }, { immediate: true, flush: "sync" });
 
 function escucharPosicion() {

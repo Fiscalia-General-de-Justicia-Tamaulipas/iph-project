@@ -10,6 +10,7 @@ from copy import deepcopy
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.utils import simpleSplit
 from reportlab.pdfgen import canvas
+from app.services.pdf_layout import PUESTA_DISPOSICION
 
 
 PLANTILLA_IPH = Path(__file__).resolve().parents[1] / "assets" / "iph-delitos.pdf"
@@ -119,47 +120,92 @@ def _dibujar_texto(canvas_pdf, texto, x, y, ancho, tamano=TAMANO_FUENTE):
     return y
 
 
+def _dibujar_campo_configurado(canvas_pdf, texto, configuracion, debug=False):
+    """Imprime en una línea, ajustando fuente y truncando para respetar el renglón."""
+    texto = _texto_seguro(_formatear(texto))
+    x, y, ancho = configuracion["x"], configuracion["y"], configuracion["width"]
+    fuente = configuracion.get("font", TAMANO_FUENTE)
+    while fuente > PUESTA_DISPOSICION["fit"]["minimum_font"] and canvas_pdf.stringWidth(texto, FUENTE, fuente) > ancho:
+        fuente -= PUESTA_DISPOSICION["fit"]["font_step"]
+    while texto and canvas_pdf.stringWidth(texto, FUENTE, fuente) > ancho:
+        texto = texto[:-1]
+    canvas_pdf.setFont(FUENTE, fuente)
+    if configuracion.get("align") == "right":
+        canvas_pdf.drawRightString(x + ancho, y, texto)
+    elif configuracion.get("align") == "center":
+        canvas_pdf.drawCentredString(x + ancho / 2, y, texto)
+    else:
+        canvas_pdf.drawString(x, y, texto)
+    if debug:
+        canvas_pdf.saveState()
+        canvas_pdf.setStrokeColorRGB(*PUESTA_DISPOSICION["debug"]["color"])
+        canvas_pdf.setLineWidth(PUESTA_DISPOSICION["debug"]["line_width"])
+        canvas_pdf.rect(x, y - PUESTA_DISPOSICION["debug"]["padding"], ancho, fuente + PUESTA_DISPOSICION["debug"]["extra_height"], stroke=1, fill=0)
+        canvas_pdf.restoreState()
+
+
+def _dibujar_casillas(canvas_pdf, texto, configuracion, debug=False, solo_digitos=True):
+    casillas = configuracion["cells"]
+    chars = (re.sub(r"\D", "", _formatear(texto)) if solo_digitos else re.sub(r"\s", "", _formatear(texto)))[:casillas["count"]]
+    canvas_pdf.setFont(FUENTE, configuracion["font"])
+    for indice, caracter in enumerate(chars):
+        canvas_pdf.drawCentredString(configuracion["x"] + indice * casillas["step"] + casillas["step"] / 2, configuracion["y"], caracter)
+    if debug:
+        canvas_pdf.saveState()
+        canvas_pdf.setStrokeColorRGB(*PUESTA_DISPOSICION["debug"]["color"])
+        for indice in range(casillas["count"]):
+            canvas_pdf.rect(configuracion["x"] + indice * casillas["step"], configuracion["y"] - PUESTA_DISPOSICION["debug"]["padding"], casillas["step"], configuracion["font"] + PUESTA_DISPOSICION["debug"]["extra_height"], stroke=1, fill=0)
+        canvas_pdf.restoreState()
+
+
+def _dibujar_conteo_casillas(canvas_pdf, valor, config, debug=False):
+    if valor in (None, ""):
+        return
+    ancho_casilla = config["step"]
+    cantidad = str(max(0, int(valor or 0))).zfill(config["digits"])
+    cantidad = cantidad[-config["digits"]:]
+    canvas_pdf.setFont(FUENTE, config["font"])
+    for indice, caracter in enumerate(cantidad):
+        canvas_pdf.drawCentredString(config["x"] + indice * ancho_casilla + ancho_casilla / 2, config["y"], caracter)
+        if debug:
+            canvas_pdf.saveState()
+            canvas_pdf.setStrokeColorRGB(*PUESTA_DISPOSICION["debug"]["color"])
+            canvas_pdf.rect(config["x"] + indice * ancho_casilla, config["y"] - PUESTA_DISPOSICION["debug"]["padding"], ancho_casilla, config["font"] + PUESTA_DISPOSICION["debug"]["extra_height"], stroke=1, fill=0)
+            canvas_pdf.restoreState()
+
+
 def _ancla_directa(modulo, etiqueta, ocurrencias):
     clave = _normalizar(etiqueta)
     if modulo == "puesta_disposicion":
+        config = PUESTA_DISPOSICION["campos"]
+        if "responsable" in clave or "realiza la puesta" in clave:
+            persona = config["persona"]["responsable"]
+            for campo, ancla in persona.items():
+                if campo.replace("_", " ") in clave:
+                    return (ancla["page"], ancla["x"], ancla["y"], ancla["width"], ancla["font"])
+        if "receptor" in clave or "fiscal autoridad que recibe" in clave:
+            persona = config["persona"]["receptor"]
+            for campo, ancla in persona.items():
+                if campo.replace("_", " ") in clave:
+                    return (ancla["page"], ancla["x"], ancla["y"], ancla["width"], ancla["font"])
         if "fecha" in clave:
-            return (0, 77, 591, 110, 7)
+            a = config["fecha"]
+            return (a["page"], a["x"], a["y"], a["width"], a["font"])
         if "hora" in clave:
-            return (0, 244, 591, 48, 7)
+            a = config["hora"]
+            return (a["page"], a["x"], a["y"], a["width"], a["font"])
         if "expediente" in clave:
-            return (0, 445, 591, 130, 7)
+            a = config["expediente"]
+            return (a["page"], a["x"], a["y"], a["width"], a["font"])
         if "folio" in clave:
-            return (0, 356, 681, 195, 7)
-        if "cantidad" in clave and "anexo a" in clave:
-            return (0, 210, 553, 36, 6)
-        if "cantidad" in clave and "anexo c" in clave:
-            return (0, 210, 518, 36, 6)
-        if "cantidad" in clave and "arma" in clave:
-            return (0, 210, 505, 28, 6)
-        if "cantidad" in clave and "objeto" in clave:
-            return (0, 246, 505, 28, 6)
-        if "primer apellido" in clave or "apellido paterno" in clave:
-            indice = ocurrencias.get("primer apellido", 0)
-            ocurrencias["primer apellido"] = indice + 1
-            return (0, 128, 412 if indice == 0 else 307, 145, 7)
-        if "segundo apellido" in clave or "apellido materno" in clave:
-            indice = ocurrencias.get("segundo apellido", 0)
-            ocurrencias["segundo apellido"] = indice + 1
-            return (0, 298, 412 if indice == 0 else 307, 130, 7)
-        if "nombre" in clave:
-            indice = ocurrencias.get("nombre", 0)
-            ocurrencias["nombre"] = indice + 1
-            return (0, 458, 412 if indice == 0 else 307, 115, 7)
-        if "adscripcion" in clave:
-            indice = ocurrencias.get("adscripcion", 0)
-            ocurrencias["adscripcion"] = indice + 1
-            return (0, 96, 367 if indice == 0 else 248, 470, 7)
-        if "cargo" in clave or "grado" in clave:
-            indice = ocurrencias.get("cargo", 0)
-            ocurrencias["cargo"] = indice + 1
-            return (0, 100, 352 if indice == 0 else 232, 465, 7)
+            a = config["folio"]
+            return (a["page"], a["x"], a["y"], a["width"], a["font"])
         if "fiscalia" in clave or "autoridad" in clave:
-            return (0, 145, 263, 430, 7)
+            a = config["persona"]["receptor"]["institucion"]
+            return (a["page"], a["x"], a["y"], a["width"], a["font"])
+        if "tipo documentacion otra" in clave:
+            a = config["documentacion"]["otra"]
+            return (a["page"], a["x"], a["y"], a["width"], a["font"])
 
     if modulo == "policias":
         if "primer apellido" in clave:
@@ -242,33 +288,24 @@ def _ancla_casilla(modulo, etiqueta, valor):
         return None
 
     if modulo == "puesta_disposicion":
-        if "no se entregan anexos" in clave and seleccionado in {"x", "si", "true"}:
-            return (0, 517, 496)
+        config = PUESTA_DISPOSICION["campos"]
+        if ("no se entregan anexos" in clave or "sin anexos" in clave) and seleccionado in {"x", "si", "true"}:
+            a = config["no_anexos"]
+            return (a["page"], a["x"], a["y"])
         for letra, posicion in {
-            "a": (0, 190, 553),
-            "b": (0, 190, 536),
-            "c": (0, 190, 518),
-            "d": (0, 190, 505),
-            "e": (0, 516, 553),
-            "f": (0, 516, 536),
-            "g": (0, 516, 518),
+            letra.lower(): (config["anexo"]["page"], *config["anexo"]["checks"][letra])
+            for letra in "ABCDEFG"
         }.items():
-            if f"anexo {letra}" in clave and ("entrega" in clave or "entregado" in clave):
+            if (f"anexo {letra}" in clave or f"anexos {letra}" in clave) and ("entrega" in clave or "entregado" in clave):
                 return posicion if seleccionado in {"si", "x", "true"} else None
         if "documentacion complementaria" in clave:
             if seleccionado == "si":
-                return (0, 154, 476)
+                return (0, *config["documentacion"]["checks"]["si"])
             if seleccionado == "no":
-                return (0, 154, 441)
-        opciones_documentacion = {
-            "fotografias": (0, 350, 476),
-            "audio": (0, 520, 476),
-            "videos": (0, 350, 458),
-            "certificados medicos": (0, 520, 458),
-            "otra": (0, 350, 441),
-        }
-        if clave in opciones_documentacion:
-            return opciones_documentacion[clave]
+                return (0, *config["documentacion"]["checks"]["no"])
+        for opcion, coords in config["documentacion"]["checks"].items():
+            if opcion not in {"si", "no"} and _normalizar(opcion) in seleccionado:
+                return (config["documentacion"]["page"], *coords)
 
     if modulo == "policias":
         opciones_institucion = {
@@ -364,6 +401,8 @@ def _anexos_seleccionados(campos):
     for campo in campos.get("puesta_disposicion", []):
         etiqueta = _normalizar(campo.get("label"))
         valor = _normalizar(campo.get("value"))
+        if "respondido" in etiqueta:
+            continue
         for letra in "abcdefg":
             if f"anexo {letra}" not in etiqueta and f"anexos {letra}" not in etiqueta:
                 continue
@@ -375,7 +414,7 @@ def _anexos_seleccionados(campos):
     return anexos
 
 
-def generar_pdf_iph(iph, capturas=None, campos_por_modulo=None):
+def generar_pdf_iph(iph, capturas=None, campos_por_modulo=None, debug=False):
     """Devuelve la plantilla oficial con capturas persistidas y valores actuales."""
     if not PLANTILLA_IPH.is_file():
         raise FileNotFoundError(f"No se encontró la plantilla oficial del IPH: {PLANTILLA_IPH}")
@@ -395,13 +434,14 @@ def generar_pdf_iph(iph, capturas=None, campos_por_modulo=None):
         lienzos.append(lienzo)
 
     # Datos estructurales que no dependen de los módulos de captura.
-    _dibujar_texto(lienzos[0], _formatear(getattr(iph, "folio_interno", "")), 356, 681, 195)
+    config_puesta = PUESTA_DISPOSICION["campos"]
+    _dibujar_campo_configurado(lienzos[0], _formatear(getattr(iph, "folio_interno", "")), config_puesta["folio"], debug)
     expediente = _formatear(getattr(iph, "no_expediente", ""))
     for campo in campos.get("puesta_disposicion", []):
         if "expediente" in _normalizar(campo.get("label")):
             expediente = campo["value"]
             break
-    _dibujar_texto(lienzos[0], expediente, 445, 591, 130)
+    _dibujar_casillas(lienzos[0], expediente, config_puesta["expediente"], debug, solo_digitos=False)
     fecha = _formatear(getattr(iph, "fecha_puesta_disposicion", ""))
     hora = _formatear(getattr(iph, "hora_puesta_disposicion", ""))
     for campo in campos.get("puesta_disposicion", []):
@@ -411,9 +451,9 @@ def generar_pdf_iph(iph, capturas=None, campos_por_modulo=None):
         elif "hora" in etiqueta:
             hora = campo["value"]
     if fecha:
-        _dibujar_texto(lienzos[0], fecha, 77, 591, 110)
+        _dibujar_casillas(lienzos[0], fecha, config_puesta["fecha"], debug)
     if hora:
-        _dibujar_texto(lienzos[0], hora, 244, 591, 48)
+        _dibujar_casillas(lienzos[0], hora, config_puesta["hora"], debug)
     referencia = _formatear(getattr(iph, "no_referencia", ""))
     for campo in campos.get("puesta_disposicion", []):
         if "referencia" in _normalizar(campo.get("label")):
@@ -430,11 +470,32 @@ def generar_pdf_iph(iph, capturas=None, campos_por_modulo=None):
         pagina_actual = None
         x = y = ancho = limite_y = 0
         for campo in campos_modulo:
+            etiqueta_normalizada = _normalizar(campo["label"])
+            if modulo == "puesta_disposicion" and "respondido" in etiqueta_normalizada:
+                continue
             casilla = _ancla_casilla(modulo, campo["label"], campo["value"])
             if casilla:
                 pagina, x_casilla, y_casilla = casilla
-                lienzos[pagina].setFont(FUENTE, 7)
+                lienzos[pagina].setFont(FUENTE, config_puesta["anexo"]["mark_font"] if modulo == "puesta_disposicion" else 7)
                 lienzos[pagina].drawString(x_casilla, y_casilla, "X")
+                if debug and modulo == "puesta_disposicion":
+                    lienzos[pagina].saveState()
+                    lienzos[pagina].setStrokeColorRGB(*PUESTA_DISPOSICION["debug"]["color"])
+                    size = PUESTA_DISPOSICION["debug"]["check_size"]
+                    padding = PUESTA_DISPOSICION["debug"]["padding"]
+                    lienzos[pagina].rect(x_casilla - padding, y_casilla - padding, size, size, stroke=1, fill=0)
+                    lienzos[pagina].restoreState()
+                continue
+            if modulo == "puesta_disposicion" and "anexos" in etiqueta_normalizada and any(
+                token in etiqueta_normalizada for token in ("cantidad", "armas", "objetos")
+            ):
+                letra = next((item for item in "ABCDEFG" if f" {item.lower()} " in f" {etiqueta_normalizada} "), "")
+                clave_conteo = f"D_{'armas' if 'armas' in etiqueta_normalizada else 'objetos'}" if letra == "D" and ("armas" in etiqueta_normalizada or "objetos" in etiqueta_normalizada) else letra
+                conteo = config_puesta["conteos"]["checks"].get(clave_conteo)
+                if conteo:
+                    _dibujar_conteo_casillas(lienzos[0], campo["value"], {**conteo, "font": config_puesta["conteos"]["font"]}, debug)
+                continue
+            if modulo == "puesta_disposicion" and "anexos" in etiqueta_normalizada and "entregado" in etiqueta_normalizada:
                 continue
             if modulo == "puesta_disposicion" and "referencia" in _normalizar(campo["label"]):
                 continue
@@ -449,6 +510,28 @@ def generar_pdf_iph(iph, capturas=None, campos_por_modulo=None):
             ancla = _ancla_directa(modulo, campo["label"], ocurrencias)
             if ancla:
                 pagina, x_ancla, y_ancla, ancho_ancla, fuente = ancla
+                if modulo == "puesta_disposicion" and ("fecha" in etiqueta_normalizada or "hora" in etiqueta_normalizada or "expediente" in etiqueta_normalizada):
+                    continue
+                if modulo == "puesta_disposicion" and ancho_ancla <= 0:
+                    continue
+                if modulo == "puesta_disposicion" and "cantidad" in etiqueta_normalizada:
+                    letra = next((item for item in "ABCDEFG" if f" {item.lower()} " in f" {etiqueta_normalizada} "), "")
+                    conteo = config_puesta["conteos"]["checks"].get(letra)
+                    if conteo:
+                        _dibujar_conteo_casillas(lienzos[pagina], campo["value"], {**conteo, "font": config_puesta["conteos"]["font"]}, debug)
+                    continue
+                if modulo == "puesta_disposicion" and "tipo documentacion otra" in etiqueta_normalizada:
+                    _dibujar_campo_configurado(lienzos[pagina], campo["value"], config_puesta["documentacion"]["otra"], debug)
+                    continue
+                if modulo == "puesta_disposicion":
+                    persona_config = config_puesta["persona"]["responsable" if "responsable" in etiqueta_normalizada else "receptor"]
+                    for campo_persona, config_persona in persona_config.items():
+                        if campo_persona.replace("_", " ") in etiqueta_normalizada and config_persona["width"] > 0:
+                            _dibujar_campo_configurado(lienzos[pagina], campo["value"], config_persona, debug)
+                            break
+                    else:
+                        _dibujar_campo_configurado(lienzos[pagina], _valor_de(campo), {"x": x_ancla, "y": y_ancla, "width": ancho_ancla, "font": fuente, "align": "left"}, debug)
+                    continue
                 _dibujar_texto(lienzos[pagina], _valor_de(campo), x_ancla, y_ancla, ancho_ancla, fuente)
                 continue
 
@@ -521,3 +604,8 @@ def generar_pdf_iph(iph, capturas=None, campos_por_modulo=None):
     writer.write(salida)
     salida.seek(0)
     return salida
+
+
+def generar_pdf_iph_debug(iph, capturas=None, campos_por_modulo=None):
+    """Genera una copia con marcos rojos para calibrar campos de la primera página."""
+    return generar_pdf_iph(iph, capturas, campos_por_modulo, debug=True)
