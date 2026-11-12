@@ -16,124 +16,42 @@
           <input id="disposicion-expediente" v-model="form.no_expediente" type="text" maxlength="80" />
         </div>
       </div>
-      <div class="disposicion-annex-progress-wrap">
-        <div
-          class="disposicion-annex-progress-track"
-          role="progressbar"
-          :aria-valuenow="cantidadRespondidos"
-          :aria-valuemin="0"
-          :aria-valuemax="anexos.length"
-          aria-label="Anexos respondidos"
-        >
-          <span :style="{ width: `${porcentajeRespondido}%` }"></span>
-          <i class="disposicion-annex-progress-active" :style="{ left: `${progresoActivo}%` }"></i>
-        </div>
-        <div class="disposicion-annex-dots" aria-hidden="true">
-          <span
-            v-for="(item, index) in anexos"
-            :key="item.clave"
-            :class="{
-              'is-done': respuestasAnexos[item.clave] !== null,
-              'is-current': index === indiceAnexoActual && !form.sin_anexos,
-            }"
-          ></span>
-        </div>
-      </div>
-      <Transition
-        :name="direccionTransicion === 'back' ? 'annex-wizard-back' : 'annex-wizard'"
-        mode="out-in"
-        @after-enter="enfocarTarjetaActual"
-      >
-        <section
-          v-if="!form.sin_anexos && anexoActual"
-          :key="tarjetaKey"
-          class="disposicion-annex-assistant"
-          aria-live="polite"
-          @keydown="manejarTeclas"
-        >
-          <p class="disposicion-annex-progress">Anexo {{ indiceAnexoActual + 1 }} de {{ anexos.length }}</p>
-          <h3>{{ anexoActual.nombre }}</h3>
-          <p class="disposicion-annex-question">¿Se entrega este anexo?</p>
-          <div class="disposicion-annex-answer">
-            <button
-              :id="`anexo-${anexoActual.clave}-si`"
-              type="button"
-              class="disposicion-annex-choice is-yes"
-              :class="{ 'is-selected': respuestaAnimada === 'SI' }"
-              :disabled="procesandoRespuesta"
-              :style="estiloRipple('SI')"
-              @click="responderAnexo('SI', $event)"
-            >
-              <span class="disposicion-annex-choice-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7" /></svg>
-              </span>
-              <span>Sí</span>
-              <span v-if="respuestaAnimada === 'SI'" class="disposicion-annex-ripple" aria-hidden="true"></span>
-            </button>
-            <button
-              :id="`anexo-${anexoActual.clave}-no`"
-              type="button"
-              class="disposicion-annex-choice is-no"
-              :class="{ 'is-selected': respuestaAnimada === 'NO' }"
-              :disabled="procesandoRespuesta"
-              :style="estiloRipple('NO')"
-              @click="responderAnexo('NO', $event)"
-            >
-              <span class="disposicion-annex-choice-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7" /></svg>
-              </span>
-              <span>No</span>
-              <span v-if="respuestaAnimada === 'NO'" class="disposicion-annex-ripple" aria-hidden="true"></span>
-            </button>
+      <section class="disposicion-annex-overview" aria-label="Respuestas de anexos" :aria-busy="cargandoAnexos">
+        <div class="disposicion-annex-overview-header">
+          <div>
+            <h3>Anexos</h3>
+            <p aria-live="polite">{{ cantidadRespondidos }} de 7 respondidos</p>
           </div>
-          <p class="disposicion-annex-hint">Usa S o N, o las flechas y Enter.</p>
-        </section>
-        <section
-          v-else
-          :key="tarjetaKey"
-          class="disposicion-annex-assistant disposicion-annex-finish"
-          aria-live="polite"
-        >
-          <span class="disposicion-annex-finish-check" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7" /></svg>
-          </span>
-          <h3 tabindex="-1" id="anexos-final-titulo">
-            {{ form.sin_anexos ? "No se entregan anexos" : "Anexos A–G respondidos" }}
-          </h3>
-          <p class="disposicion-annex-finish-caption">
-            {{ form.sin_anexos ? "Todas las respuestas se registraron como No." : "Revisa o corrige tus respuestas antes de continuar." }}
-          </p>
-          <TransitionGroup name="annex-summary" tag="ul" class="disposicion-annex-finish-list">
-            <li v-for="(item, index) in anexosRespondidos" :key="item.clave" :style="{ '--summary-delay': `${index * 45}ms` }">
-              <button
-                type="button"
-                class="disposicion-annex-chip"
-                :disabled="form.sin_anexos || procesandoRespuesta"
-                @click="editarAnexo(item.clave)"
-              >
-                {{ item.clave }} · {{ item.respuesta ? "Sí" : "No" }}
-              </button>
-            </li>
-          </TransitionGroup>
-        </section>
-      </Transition>
-      <TransitionGroup name="annex-chip" tag="div" class="disposicion-annex-chips" aria-label="Anexos respondidos">
-        <button
-          v-for="item in anexosRespondidos"
-          :key="item.clave"
-          type="button"
-          class="disposicion-annex-chip"
-          :disabled="procesandoRespuesta"
-          @click="editarAnexo(item.clave)"
-        >
-          {{ item.clave }} · {{ item.respuesta ? "Sí" : "No" }}
-        </button>
-      </TransitionGroup>
+          <button ref="botonAbrirAnexos" type="button" class="disposicion-annex-open" :disabled="cargandoAnexos" @click="abrirPantallaAnexos">
+            {{ todosRespondidos ? "Editar anexos" : "Responder anexos" }}
+          </button>
+        </div>
+        <TransitionGroup name="annex-overview-chip" tag="div" class="disposicion-annex-chips" aria-label="Respuestas actuales">
+          <button
+            v-for="item in anexosRespondidos"
+            :key="item.clave"
+            type="button"
+            class="disposicion-annex-chip"
+            :disabled="cargandoAnexos"
+            @click="abrirAnexoDesdeChip(item.clave)"
+          >
+            {{ item.clave }} · {{ item.respuesta ? "Sí" : "No" }}
+          </button>
+        </TransitionGroup>
+      </section>
 
-      <label class="disposicion-check disposicion-no-annexes">
-        <input v-model="form.sin_anexos" type="checkbox" :disabled="procesandoRespuesta" @change="actualizarAnexos" />
-        No se entregan Anexos
-      </label>
+      <AnexosPantalla
+        :abierta="pantallaAnexosAbierta"
+        :respuestas="respuestasAnexos"
+        :sin-anexos="form.sin_anexos"
+        :cambios-pendientes="respuestasAnexosModificadas"
+        :elemento-disparador="botonAbrirAnexos"
+        :indice-inicial="indiceInicialAnexo"
+        @cerrar="pantallaAnexosAbierta = false"
+        @actualizar-respuestas="actualizarRespuestasAnexos"
+        @ningun-anexo="marcarSinAnexos"
+        @editar-anexo="editarAnexoDesdePantalla"
+      />
 
       <div v-if="form.sin_anexos || todosRespondidos" class="disposicion-docs">
         <label for="documentacion-complementaria">¿Anexa documentación complementaria? *</label>
@@ -287,9 +205,10 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { leerCaptura, guardarCaptura } from "../../store/capturas";
 import { eliminarAdjunto, guardarAdjunto, listarAdjuntos, obtenerAdjunto } from "../../store/attachments";
+import AnexosPantalla from "./AnexosPantalla.vue";
 
 const props = defineProps({
   iphId: { type: [String, Number], required: true },
@@ -309,18 +228,19 @@ const anexos = [
 const tiposDocumentacion = ["Fotografías", "Videos", "Audio", "Certificados médicos", "Otra"];
 const respuestasVacias = () => Object.fromEntries(anexos.map(({ clave }) => [clave, null]));
 const respuestasAnexos = ref(respuestasVacias());
-const indiceAnexoActual = ref(0);
-const anexoActual = computed(() => anexos[indiceAnexoActual.value] || null);
 const anexosRespondidos = computed(() => anexos
   .filter(({ clave }) => respuestasAnexos.value[clave] !== null)
   .map(({ clave, nombre }) => ({ clave, nombre, respuesta: respuestasAnexos.value[clave] })));
 const cantidadRespondidos = computed(() => anexosRespondidos.value.length);
-const porcentajeRespondido = computed(() => (cantidadRespondidos.value / anexos.length) * 100);
 const todosRespondidos = computed(() => cantidadRespondidos.value === anexos.length);
-const progresoActivo = computed(() => form.value.sin_anexos || todosRespondidos.value
-  ? 100
-  : ((indiceAnexoActual.value + 0.5) / anexos.length) * 100);
-const tarjetaKey = computed(() => form.value.sin_anexos || !anexoActual.value ? "final" : anexoActual.value.clave);
+const pantallaAnexosAbierta = ref(false);
+const botonAbrirAnexos = ref(null);
+const indiceInicialAnexo = ref(0);
+const respuestasGuardadas = ref(respuestasVacias());
+const sinAnexosGuardado = ref(false);
+const cargandoAnexos = ref(true);
+const respuestasAnexosModificadas = computed(() => form.value.sin_anexos !== sinAnexosGuardado.value ||
+  anexos.some(({ clave }) => respuestasAnexos.value[clave] !== respuestasGuardadas.value[clave]));
 const formulario = ref(null);
 const selectorArchivo = ref(null);
 const archivos = ref([]);
@@ -328,12 +248,6 @@ const avancesGuardados = ref(false);
 const errorArchivo = ref("");
 const errorGuardado = ref("");
 const mensaje = ref("");
-const direccionTransicion = ref("forward");
-const respuestaAnimada = ref("");
-const procesandoRespuesta = ref(false);
-const respaldoAnexos = ref(null);
-const respuestaTimer = ref(null);
-const ripplePunto = ref({ x: 0, y: 0 });
 
 function crearBorrador() {
   return {
@@ -375,16 +289,6 @@ function notificarAnexos() {
   emit("anexos-actualizados", entregados);
 }
 
-function actualizarIndiceInicial() {
-  indiceAnexoActual.value = anexos.findIndex(({ clave }) => respuestasAnexos.value[clave] === null);
-  if (indiceAnexoActual.value < 0) indiceAnexoActual.value = anexos.length;
-}
-
-function moverAIndice(indice) {
-  direccionTransicion.value = indice < indiceAnexoActual.value ? "back" : "forward";
-  indiceAnexoActual.value = indice;
-}
-
 function hidratarRespuestas(anexosGuardados = {}) {
   respuestasAnexos.value = Object.fromEntries(anexos.map(({ clave }) => {
     if (form.value.sin_anexos) return [clave, false];
@@ -392,6 +296,62 @@ function hidratarRespuestas(anexosGuardados = {}) {
     const tieneRespuesta = dato.respondido !== false && ["SI", "NO"].includes(dato.entregado);
     return [clave, tieneRespuesta ? dato.entregado === "SI" : null];
   }));
+}
+
+function actualizarRespuestasAnexos(respuestas) {
+  respuestasAnexos.value = Object.fromEntries(anexos.map(({ clave }) => [
+    clave,
+    respuestas?.[clave] === true ? true : respuestas?.[clave] === false ? false : null,
+  ]));
+  form.value.sin_anexos = false;
+  notificarAnexos();
+}
+
+function marcarSinAnexos() {
+  respuestasAnexos.value = Object.fromEntries(anexos.map(({ clave }) => [clave, false]));
+  form.value.sin_anexos = true;
+  notificarAnexos();
+}
+
+function marcarRespuestasGuardadas() {
+  respuestasGuardadas.value = { ...respuestasAnexos.value };
+  sinAnexosGuardado.value = form.value.sin_anexos;
+}
+
+function indicePrimeraRespuestaPendiente() {
+  const index = anexos.findIndex(({ clave }) => respuestasAnexos.value[clave] === null);
+  return index < 0 ? anexos.length : index;
+}
+
+function abrirPantallaAnexos() {
+  indiceInicialAnexo.value = indicePrimeraRespuestaPendiente();
+  pantallaAnexosAbierta.value = true;
+}
+
+function abrirAnexoDesdeChip(clave) {
+  form.value.sin_anexos = false;
+  indiceInicialAnexo.value = anexos.findIndex((anexo) => anexo.clave === clave);
+  notificarAnexos();
+  pantallaAnexosAbierta.value = true;
+}
+
+function editarAnexoDesdePantalla() {
+  if (form.value.sin_anexos) {
+    form.value.sin_anexos = false;
+    notificarAnexos();
+  }
+}
+
+function abrirAutomaticamenteUnaVez() {
+  const claveVisita = `iph:${props.iphId}:anexos-pantalla-abierta`;
+  try {
+    if (sessionStorage.getItem(claveVisita)) return;
+    sessionStorage.setItem(claveVisita, "1");
+  } catch (error) {
+    console.warn("No se pudo recordar la primera visita al asistente de anexos:", error);
+  }
+  indiceInicialAnexo.value = indicePrimeraRespuestaPendiente();
+  pantallaAnexosAbierta.value = true;
 }
 
 function crearPayloadCaptura() {
@@ -409,42 +369,44 @@ function crearPayloadCaptura() {
 
 async function cargarBorrador() {
   errorGuardado.value = "";
-  window.clearTimeout(respuestaTimer.value);
-  procesandoRespuesta.value = false;
-  respuestaAnimada.value = "";
-  respaldoAnexos.value = null;
+  pantallaAnexosAbierta.value = false;
+  cargandoAnexos.value = true;
+  form.value = crearBorrador();
+  respuestasAnexos.value = respuestasVacias();
+  archivos.value = [];
+  avancesGuardados.value = false;
+  errorArchivo.value = "";
+  mensaje.value = "";
+  marcarRespuestasGuardadas();
   try {
     const datos = await leerCaptura(props.iphId, "puesta_disposicion", claveBorrador());
     if (datos == null) {
-      form.value = crearBorrador();
-      respuestasAnexos.value = respuestasVacias();
-      actualizarIndiceInicial();
       avancesGuardados.value = false;
       notificarAnexos();
-      archivos.value = await listarAdjuntos(props.iphId, "puesta_disposicion");
-      return;
-    }
-    if (!datos || typeof datos !== "object" || Array.isArray(datos)) {
+    } else if (!datos || typeof datos !== "object" || Array.isArray(datos)) {
       throw new Error("El borrador guardado no tiene un formato válido.");
+    } else {
+      const { anexos: anexosGuardados = {}, ...datosFormulario } = datos;
+      const base = crearBorrador();
+      form.value = {
+        ...base,
+        ...datosFormulario,
+        responsable: { ...base.responsable, ...(datos.responsable || {}) },
+        receptor: { ...base.receptor, ...(datos.receptor || {}) },
+      };
+      hidratarRespuestas(anexosGuardados);
+      marcarRespuestasGuardadas();
+      avancesGuardados.value = true;
+      notificarAnexos();
     }
-    const { anexos: anexosGuardados = {}, ...datosFormulario } = datos;
-    const base = crearBorrador();
-    form.value = {
-      ...base,
-      ...datosFormulario,
-      responsable: { ...base.responsable, ...(datos.responsable || {}) },
-      receptor: { ...base.receptor, ...(datos.receptor || {}) },
-    };
-    hidratarRespuestas(anexosGuardados);
-    actualizarIndiceInicial();
-    avancesGuardados.value = true;
-    notificarAnexos();
   } catch (error) {
     avancesGuardados.value = false;
     errorGuardado.value = error.response?.data?.msg || `No se pudo cargar la captura del servidor: ${error.message}`;
   }
   try { archivos.value = await listarAdjuntos(props.iphId, "puesta_disposicion"); }
   catch (error) { errorArchivo.value = error.response?.data?.msg || "No se pudieron cargar los archivos del servidor."; }
+  cargandoAnexos.value = false;
+  abrirAutomaticamenteUnaVez();
 }
 
 async function guardar() {
@@ -452,6 +414,7 @@ async function guardar() {
   mensaje.value = "";
   try {
     await guardarCaptura(props.iphId, "puesta_disposicion", crearPayloadCaptura());
+    marcarRespuestasGuardadas();
     avancesGuardados.value = true;
     mensaje.value = "Avances guardados en el servidor.";
     emit("guardado");
@@ -474,79 +437,6 @@ async function guardarYSiguiente() {
     return;
   }
   if (await guardar()) emit("siguiente");
-}
-
-function actualizarAnexos() {
-  if (form.value.sin_anexos) {
-    respaldoAnexos.value = { ...respuestasAnexos.value };
-    respuestasAnexos.value = Object.fromEntries(anexos.map(({ clave }) => [clave, false]));
-    moverAIndice(anexos.length);
-  } else {
-    respuestasAnexos.value = respaldoAnexos.value ? { ...respaldoAnexos.value } : respuestasVacias();
-    respaldoAnexos.value = null;
-    actualizarIndiceInicial();
-  }
-  notificarAnexos();
-}
-
-async function enfocarTarjetaActual() {
-  await nextTick();
-  if (anexoActual.value) document.getElementById(`anexo-${anexoActual.value.clave}-si`)?.focus();
-  else document.getElementById("anexos-final-titulo")?.focus();
-}
-
-function responderAnexo(respuesta, event) {
-  const actual = anexoActual.value;
-  if (!actual || procesandoRespuesta.value) return;
-  respuestasAnexos.value[actual.clave] = respuesta === "SI";
-  respuestaAnimada.value = respuesta;
-  procesandoRespuesta.value = true;
-  const boton = event?.currentTarget || document.getElementById(`anexo-${actual.clave}-${respuesta === "SI" ? "si" : "no"}`);
-  const rect = boton?.getBoundingClientRect();
-  ripplePunto.value = rect
-    ? {
-      x: event?.detail ? event.clientX - rect.left : rect.width / 2,
-      y: event?.detail ? event.clientY - rect.top : rect.height / 2,
-    }
-    : { x: 0, y: 0 };
-  notificarAnexos();
-
-  window.clearTimeout(respuestaTimer.value);
-  respuestaTimer.value = window.setTimeout(() => {
-    respuestaAnimada.value = "";
-    procesandoRespuesta.value = false;
-    const siguienteSinResponder = anexos.findIndex(({ clave }, index) => index > indiceAnexoActual.value && respuestasAnexos.value[clave] === null);
-    const primerPendiente = anexos.findIndex(({ clave }) => respuestasAnexos.value[clave] === null);
-    moverAIndice(siguienteSinResponder >= 0 ? siguienteSinResponder : primerPendiente >= 0 ? primerPendiente : anexos.length);
-  }, 280);
-}
-
-function estiloRipple(respuesta) {
-  return respuestaAnimada.value === respuesta
-    ? { "--ripple-x": `${ripplePunto.value.x}px`, "--ripple-y": `${ripplePunto.value.y}px` }
-    : undefined;
-}
-
-function editarAnexo(clave) {
-  if (procesandoRespuesta.value) return;
-  const indice = anexos.findIndex((anexo) => anexo.clave === clave);
-  if (indice >= 0) moverAIndice(indice);
-}
-
-function manejarTeclas(event) {
-  if (procesandoRespuesta.value || event.altKey || event.ctrlKey || event.metaKey) return;
-  if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName)) return;
-  const tecla = event.key.toLowerCase();
-  if (tecla === "s") {
-    event.preventDefault();
-    responderAnexo("SI");
-  } else if (tecla === "n") {
-    event.preventDefault();
-    responderAnexo("NO");
-  } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-    event.preventDefault();
-    document.getElementById(`anexo-${anexoActual.value.clave}-${event.key === "ArrowRight" ? "si" : "no"}`)?.focus();
-  }
 }
 
 async function agregarArchivo(event) {
@@ -595,11 +485,7 @@ watch(() => props.iphId, cargarBorrador);
 watch(() => props.iph?.no_expediente, (noExpediente) => {
   if (noExpediente && !form.value.no_expediente) form.value.no_expediente = noExpediente;
 });
-onMounted(() => {
-  actualizarIndiceInicial();
-  cargarBorrador();
-});
-onBeforeUnmount(() => window.clearTimeout(respuestaTimer.value));
+onMounted(cargarBorrador);
 </script>
 
 <style scoped>
@@ -1107,5 +993,113 @@ onBeforeUnmount(() => window.clearTimeout(respuestaTimer.value));
 @keyframes annex-reduced-fade {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+.disposicion-annex-overview {
+  margin: 0.6rem 0.7rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #dfe5e1;
+  border-radius: 0.7rem;
+  background: #fafcfb;
+}
+
+.disposicion-annex-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.disposicion-annex-overview-header h3 {
+  margin: 0;
+  color: #2f4037;
+  font-size: 0.8rem;
+}
+
+.disposicion-annex-overview-header p {
+  margin: 0.18rem 0 0;
+  color: #758179;
+  font-size: 0.68rem;
+}
+
+.disposicion-annex-open {
+  min-height: 2.2rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #1e6b48;
+  border-radius: 999px;
+  background: #1e6b48;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.disposicion-annex-open:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #15583a;
+}
+
+.disposicion-annex-open:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.disposicion-annex-overview .disposicion-annex-chips {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0;
+}
+
+.annex-overview-chip-enter-active,
+.annex-overview-chip-leave-active {
+  transition: transform 230ms cubic-bezier(.22, 1, .36, 1), opacity 180ms ease;
+  will-change: transform, opacity;
+}
+
+.annex-overview-chip-enter-from,
+.annex-overview-chip-leave-to {
+  transform: scale(0.82);
+  opacity: 0;
+}
+
+.annex-overview-chip-move {
+  transition: transform 250ms cubic-bezier(.22, 1, .36, 1);
+  will-change: transform;
+}
+
+@media (max-width: 520px) {
+  .disposicion-annex-overview {
+    margin: 0.55rem 0.5rem;
+    padding: 0.55rem;
+  }
+
+  .disposicion-annex-overview-header {
+    gap: 0.4rem;
+  }
+
+  .disposicion-annex-open {
+    min-height: 2rem;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.65rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disposicion-annex-open {
+    transition: none;
+  }
+
+  .annex-overview-chip-enter-active,
+  .annex-overview-chip-leave-active,
+  .annex-overview-chip-move {
+    transition: opacity 160ms ease;
+  }
+
+  .annex-overview-chip-enter-from,
+  .annex-overview-chip-leave-to {
+    transform: none;
+  }
 }
 </style>
