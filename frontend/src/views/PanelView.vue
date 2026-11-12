@@ -9,10 +9,10 @@
       <div class="page-intro"><div><div class="breadcrumb">ESCRITORIO <span>/</span> REGISTROS</div><h1>Registros IPH</h1><p>Consulta y administra los informes policiales homologados.</p></div><div class="intro-date"><span class="date-icon">▦</span><span>{{ fechaActual }}</span></div></div>
 
       <section class="metric-grid" aria-label="Resumen de registros">
-        <article class="metric-card"><span class="metric-icon icon-total">▤</span><div><small>Total de registros</small><strong>{{ totalRegistros }}</strong></div><span class="metric-note">REGISTROS</span></article>
-        <article class="metric-card"><span class="metric-icon icon-active">✓</span><div><small>Activas</small><strong>{{ iphsActivas }}</strong></div><span class="metric-note">VIGENTES</span></article>
-        <article class="metric-card"><span class="metric-icon icon-done">⌑</span><div><small>Terminadas</small><strong>{{ iphsTerminadas }}</strong></div><span class="metric-note">CONCLUIDAS</span></article>
-        <article class="metric-card"><span class="metric-icon icon-pending">◷</span><div><small>Pendientes</small><strong>{{ iphsPendientes }}</strong></div><span class="metric-note">EN REVISIÓN</span></article>
+        <article class="metric-card metric-total"><span class="metric-icon">▤</span><div><small>Total de registros</small><strong>{{ totalRegistros }}</strong></div><span class="metric-note">REGISTROS</span></article>
+        <article class="metric-card metric-active"><span class="metric-icon">✓</span><div><small>Activas</small><strong>{{ iphsActivas }}</strong></div><span class="metric-note">VIGENTES</span></article>
+        <article class="metric-card metric-done"><span class="metric-icon">⌑</span><div><small>Terminadas</small><strong>{{ iphsTerminadas }}</strong></div><span class="metric-note">CONCLUIDAS</span></article>
+        <article class="metric-card metric-pending"><span class="metric-icon">◷</span><div><small>Pendientes</small><strong>{{ iphsPendientes }}</strong></div><span class="metric-note">SOLO PENDIENTE</span></article>
       </section>
 
       <section class="records-panel">
@@ -50,6 +50,35 @@ const registrosPorPagina = ref(10);
 const paginaActual = ref(1);
 const orden = ref({ campo: "fecha", direccion: "desc" });
 const horaActualizacion = ref("—");
+const ESTADO_A_CLASE = Object.freeze({
+  ACTIVA: "activa",
+  ACTIVO: "activa",
+  VIGENTE: "activa",
+  VIGENTES: "activa",
+  EN_TRAMITE: "en-tramite",
+  TRAMITE: "en-tramite",
+  PENDIENTE: "pendiente",
+  PENDIENTES: "pendiente",
+  TERMINADA: "terminada",
+  TERMINADO: "terminada",
+  COMPLETADA: "terminada",
+  COMPLETADO: "terminada",
+  COMPLETA: "terminada",
+  COMPLETO: "terminada",
+  CONCLUIDA: "terminada",
+  CONCLUIDO: "terminada",
+  FINALIZADA: "terminada",
+  FINALIZADO: "terminada",
+  CERRADA: "terminada",
+  CERRADO: "terminada",
+  CANCELADA: "cancelada",
+  CANCELADO: "cancelada",
+  RECHAZADA: "cancelada",
+  RECHAZADO: "cancelada",
+  EN_REVISION: "revision",
+  REVISION: "revision",
+  PARA_SUPERVISAR: "revision",
+});
 const nombreUsuario = computed(() => auth.usuario?.nombre_completo || auth.usuario?.usuario || "Usuario");
 const adscripcion = computed(() => auth.usuario?.UNDD_DSCRPCION || auth.usuario?.adscripcion || auth.usuario?.undd_dscrpcion || "");
 const puesto = computed(() => auth.usuario?.PUESTO || auth.usuario?.puesto || auth.usuario?.cargo || "");
@@ -61,13 +90,14 @@ const iphsTerminadas = computed(() => listaIPH.value.filter((iph) => clasificarE
 const iphsPendientes = computed(() => listaIPH.value.filter((iph) => clasificarEstado(iph) === "pendiente").length);
 
 function folio(iph) { return iph.folio_interno || iph.IPH || "Sin folio"; }
-function textoEstado(iph) { const estado = iph.estado ?? iph.ESTADO_CARPETA ?? iph.ESTADO ?? iph.ESTADO_IPH ?? ""; return estado === "" ? "Sin estado" : String(estado); }
+function textoEstado(iph) {
+  const estado = [iph.estado, iph.ESTADO_CARPETA, iph.ESTADO, iph.ESTADO_IPH, iph.ESTATUS_IPH, iph.ESTATUS]
+    .find((valor) => valor != null && String(valor).trim() !== "");
+  return estado === undefined ? "Sin estado" : String(estado);
+}
 function clasificarEstado(iph) {
   const estado = textoEstado(iph).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase().replace(/[\s-]+/g, "_");
-  if (["ACTIVA", "ACTIVO", "VIGENTE", "VIGENTES"].includes(estado)) return "activa";
-  if (["TERMINADA", "TERMINADO", "COMPLETADA", "COMPLETADO", "COMPLETA", "COMPLETO", "CONCLUIDA", "CONCLUIDO", "FINALIZADA", "FINALIZADO", "CERRADA", "CERRADO"].includes(estado)) return "terminada";
-  if (["PENDIENTE", "PENDIENTES", "EN_TRAMITE", "TRAMITE", "EN_PROCESO", "EN_CAPTURA", "CAPTURA", "POR_REVISAR"].includes(estado)) return "pendiente";
-  return "sin-clasificar";
+  return ESTADO_A_CLASE[estado] || "desconocido";
 }
 function formatearFecha(valor) { if (!valor) return "—"; const fecha = new Date(valor); return Number.isNaN(fecha.getTime()) ? valor : fecha.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }); }
 function normalizar(valor) { return String(valor ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }

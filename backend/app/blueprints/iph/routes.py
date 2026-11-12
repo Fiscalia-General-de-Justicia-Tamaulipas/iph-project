@@ -781,7 +781,8 @@ def crear_iph():
         }), 201
     except Exception as exc:
         conn.rollback()
-        return jsonify({"msg": "No se pudo generar el IPH en la base de datos principal.", "detalle": str(exc)}), 503
+        current_app.logger.error("No fue posible crear el IPH en la base principal (%s).", type(exc).__name__)
+        return jsonify({"msg": "No se pudo generar el IPH en la base de datos principal. Verifica la conexión y vuelve a intentarlo."}), 503
     finally:
         cursor.close()
         conn.close()
@@ -793,7 +794,8 @@ def obtener_iph(iph_id):
     try:
         registro = _fetch_one("SELECT TOP 1 * FROM IPH WHERE ID_IPH = ?", (iph_id,), raise_errors=True)
     except Exception as exc:
-        return jsonify({"msg": "No fue posible consultar el IPH solicitado.", "detalle": str(exc)}), 503
+        current_app.logger.error("No fue posible consultar el IPH solicitado (%s).", type(exc).__name__)
+        return jsonify({"msg": "No fue posible consultar el IPH solicitado. Verifica la conexión y vuelve a intentarlo."}), 503
 
     if not registro:
         return jsonify({"msg": "IPH no encontrado"}), 404
