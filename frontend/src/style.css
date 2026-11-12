@@ -2822,3 +2822,63 @@ textarea {
     transition: none;
   }
 }
+
+/* IPH registry state colors and summary accents. */
+.status-en-tramite {
+  background: #fff5d8;
+  color: #805900;
+}
+
+.status-pendiente {
+  background: #fff0e5;
+  color: #9a4300;
+}
+
+.status-terminada {
+  background: #e8f0ff;
+  color: #2453a2;
+}
+
+.status-cancelada {
+  background: #ffeded;
+  color: #a12e38;
+}
+
+.status-revision {
+  background: #f2eaff;
+  color: #6938a5;
+}
+
+.status-desconocido {
+  background: #eef0f1;
+  color: #59636a;
+}
+
+.metric-total {
+  --metric-accent: #58656e;
+  --metric-tint: #edf1f3;
+}
+
+.metric-active {
+  --metric-accent: #28714d;
+  --metric-tint: #e9f4ed;
+}
+
+.metric-done {
+  --metric-accent: #2453a2;
+  --metric-tint: #e8f0ff;
+}
+
+.metric-pending {
+  --metric-accent: #9a4300;
+  --metric-tint: #fff0e5;
+}
+
+.metric-card .metric-icon {
+  background: var(--metric-tint);
+  color: var(--metric-accent);
+}
+
+.metric-card strong {
+  color: var(--metric-accent);
+}

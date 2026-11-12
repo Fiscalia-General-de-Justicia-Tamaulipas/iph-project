@@ -1,5 +1,6 @@
 <template>
   <div class="inspeccion-lugar-form">
+    <p v-if="errorGuardado" class="save-error" role="alert">{{ errorGuardado }}</p>
     <form @submit.prevent="guardar">
       <section class="inspeccion-lugar-block" aria-labelledby="ubicacion-heading">
         <h2 id="ubicacion-heading" class="inspeccion-lugar-subheading">
@@ -326,6 +327,7 @@ import api from "../../store/api";
 
 const props = defineProps({ iphId: { type: [String, Number], required: true } });
 const emit = defineEmits(["guardado", "cancelar", "siguiente"]);
+const errorGuardado = ref("");
 
 const form = ref({
   fecha_inspeccion: "",
@@ -576,18 +578,22 @@ async function cargar() {
 }
 
 async function guardar() {
+  errorGuardado.value = "";
   guardando.value = true;
   try {
     await api.put(`/iph/${props.iphId}/inspeccion_lugar`, form.value);
     emit("guardado");
+    return true;
+  } catch (error) {
+    errorGuardado.value = error.response?.data?.msg || "No se pudo guardar la inspección del lugar. Revisa la conexión e inténtalo de nuevo.";
+    return false;
   } finally {
     guardando.value = false;
   }
 }
 
 async function guardarYContinuar() {
-  await guardar();
-  emit("siguiente");
+  if (await guardar()) emit("siguiente");
 }
 
 onMounted(cargar);
@@ -595,6 +601,7 @@ onBeforeUnmount(cerrarMapa);
 </script>
 
 <style scoped>
+.save-error { margin: 0 0 .75rem; padding: .65rem .8rem; border: 1px solid #b42318; color: #8f1d16; background: #fff4f2; }
 .inspeccion-lugar-form {
   width: 100%;
   color: #303030;

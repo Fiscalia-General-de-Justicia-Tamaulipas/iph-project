@@ -46,6 +46,8 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,
         "pool_recycle": 280,
+        # Evita que SQLAlchemy incluya valores de parámetros en excepciones/logs.
+        "hide_parameters": True,
     }
 
     PDF_OUTPUT_DIR = os.getenv("PDF_OUTPUT_DIR", os.path.join(os.path.dirname(__file__), "generated_pdfs"))
