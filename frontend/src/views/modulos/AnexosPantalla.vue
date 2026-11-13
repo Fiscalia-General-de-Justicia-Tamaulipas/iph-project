@@ -41,15 +41,19 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m7 7-7-7 7-7" /></svg>
           </button>
 
+          <p class="annex-screen-brand">Registro de anexos IPH</p>
+
           <div
             class="annex-screen-progress"
             role="progressbar"
-            :aria-valuenow="cantidadRespondidos"
+            :aria-valuenow="esFinal ? anexos.length : indiceActual + 1"
             aria-valuemin="0"
             :aria-valuemax="anexos.length"
-            aria-label="Anexos respondidos"
+            aria-label="Progreso del cuestionario"
           >
-            <span class="annex-screen-progress-label">{{ cantidadRespondidos }} de 7</span>
+            <span class="annex-screen-progress-label">
+              Pregunta {{ esFinal ? anexos.length : indiceActual + 1 }} de {{ anexos.length }}
+            </span>
             <div class="annex-screen-segments" aria-hidden="true">
               <span
                 v-for="(item, index) in anexos"
@@ -74,90 +78,106 @@
           </button>
         </header>
 
-        <Transition
-          :name="direccion === 'back' ? 'annex-content-back' : 'annex-content'"
-          mode="out-in"
-          @after-enter="alEntrarContenido"
-        >
-          <main
-            v-if="!esFinal"
-            :key="anexoActual.clave"
-            class="annex-screen-content"
-            aria-live="polite"
+        <div class="annex-screen-stage">
+          <Transition
+            :name="direccion === 'back' ? 'annex-content-back' : 'annex-content'"
+            mode="out-in"
+            @after-enter="alEntrarContenido"
           >
-            <Transition :name="direccion === 'back' ? 'annex-letter-back' : 'annex-letter'" mode="out-in">
-              <span :key="anexoActual.clave" class="annex-screen-watermark" aria-hidden="true">{{ anexoActual.clave }}</span>
-            </Transition>
+            <main
+              v-if="!esFinal && !confirmacionVisible"
+              :key="anexoActual.clave"
+              class="annex-screen-content"
+              aria-live="polite"
+            >
+              <Transition :name="direccion === 'back' ? 'annex-letter-back' : 'annex-letter'" mode="out-in">
+                <span :key="anexoActual.clave" class="annex-screen-watermark" aria-hidden="true">{{ anexoActual.clave }}</span>
+              </Transition>
 
-            <p class="annex-screen-kicker">Anexo {{ indiceActual + 1 }} de {{ anexos.length }}</p>
-            <h1 id="annex-screen-title">{{ anexoActual.nombre }}</h1>
-            <p class="annex-screen-question">¿Se entrega este anexo?</p>
+              <p class="annex-screen-kicker">Anexo {{ indiceActual + 1 }} de {{ anexos.length }}</p>
+              <h1 id="annex-screen-title">{{ anexoActual.nombre }}</h1>
+              <p class="annex-screen-question">¿Se entrega este anexo?</p>
 
-            <div class="annex-screen-choices">
-              <button
-                :id="`annex-screen-${anexoActual.clave}-si`"
-                type="button"
-                class="annex-screen-choice is-yes"
-                :class="{ 'is-selected': respuestaAnimada === 'SI' }"
-                :disabled="procesando"
-                :style="estiloOndaBoton('SI')"
-                @click="responder('SI', $event)"
-              >
-                <svg class="annex-choice-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>
-                <span>Sí</span>
+              <div class="annex-screen-choices">
+                <button
+                  :id="`annex-screen-${anexoActual.clave}-si`"
+                  type="button"
+                  class="annex-screen-choice is-yes"
+                  :class="{ 'is-selected': respuestaAnimada === 'SI' }"
+                  :disabled="procesando"
+                  :style="estiloOndaBoton('SI')"
+                  @click="responder('SI', $event)"
+                >
+                  <svg class="annex-choice-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>
+                  <span>Sí</span>
+                </button>
+                <button
+                  :id="`annex-screen-${anexoActual.clave}-no`"
+                  type="button"
+                  class="annex-screen-choice is-no"
+                  :class="{ 'is-selected': respuestaAnimada === 'NO' }"
+                  :disabled="procesando"
+                  :style="estiloOndaBoton('NO')"
+                  @click="responder('NO', $event)"
+                >
+                  <svg class="annex-choice-cross" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+                  <span>No</span>
+                </button>
+              </div>
+
+              <button type="button" class="annex-screen-none" :disabled="procesando" @click="ningunAnexo($event)">
+                Ningún anexo
               </button>
-              <button
-                :id="`annex-screen-${anexoActual.clave}-no`"
-                type="button"
-                class="annex-screen-choice is-no"
-                :class="{ 'is-selected': respuestaAnimada === 'NO' }"
-                :disabled="procesando"
-                :style="estiloOndaBoton('NO')"
-                @click="responder('NO', $event)"
-              >
-                <svg class="annex-choice-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4.5 4.5L19 7" /></svg>
-                <span>No</span>
-              </button>
-            </div>
+            </main>
 
-            <button type="button" class="annex-screen-none" :disabled="procesando" @click="ningunAnexo($event)">
-              Ningún anexo
-            </button>
-          </main>
+            <main
+              v-else-if="confirmacionVisible"
+              key="confirmation"
+              class="annex-screen-content annex-screen-confirmation"
+              role="status"
+              tabindex="-1"
+            >
+              <span class="annex-confirmation-check" aria-hidden="true">
+                <svg viewBox="0 0 48 48"><path d="m9 25 10 10L39 14" /></svg>
+              </span>
+              <h1 id="annex-screen-title">Respuesta registrada</h1>
+              <p>Preparando siguiente pregunta...</p>
+            </main>
 
-          <main
-            v-else
-            :key="`final-${cantidadRespondidos}`"
-            class="annex-screen-content annex-screen-finish"
-            aria-live="polite"
-          >
-            <span class="annex-finish-mark" aria-hidden="true">
-              <svg viewBox="0 0 48 48"><path d="m9 25 10 10L39 14" /></svg>
-            </span>
-            <p class="annex-screen-kicker">Revisión completa</p>
-            <h1 id="annex-screen-title">{{ sinAnexos ? "No se entregan anexos" : "Anexos respondidos" }}</h1>
-            <p class="annex-screen-finish-note">
-              {{ sinAnexos ? "Todas las respuestas se registraron como No." : "Puedes tocar una respuesta para corregirla." }}
-            </p>
-            <TransitionGroup name="annex-final-chip" tag="div" class="annex-screen-summary">
-              <button
-                v-for="(item, index) in respuestasListas"
-                :key="item.clave"
-                type="button"
-                class="annex-screen-chip"
-                :style="{ '--chip-delay': `${index * 55}ms` }"
-                :disabled="procesando"
-                @click="editarAnexo(item.clave)"
-              >
-                {{ item.clave }} · {{ item.respuesta ? "Sí" : "No" }}
+            <main
+              v-else
+              :key="`final-${cantidadRespondidos}`"
+              class="annex-screen-content annex-screen-finish"
+              aria-live="polite"
+            >
+              <span class="annex-finish-mark" aria-hidden="true">
+                <svg viewBox="0 0 48 48"><path d="m9 25 10 10L39 14" /></svg>
+              </span>
+              <p class="annex-screen-kicker">Revisión completa</p>
+              <h1 id="annex-screen-title">{{ sinAnexos ? "No se entregan anexos" : "Anexos respondidos" }}</h1>
+              <p class="annex-screen-finish-note">
+                {{ sinAnexos ? "Todas las respuestas se registraron como No." : "Puedes tocar una respuesta para corregirla." }}
+              </p>
+              <TransitionGroup name="annex-final-chip" tag="div" class="annex-screen-summary">
+                <button
+                  v-for="(item, index) in respuestasListas"
+                  :key="item.clave"
+                  type="button"
+                  class="annex-screen-chip"
+                  :style="{ '--chip-delay': `${index * 55}ms` }"
+                  :disabled="procesando"
+                  @click="editarAnexo(item.clave)"
+                >
+                  {{ item.clave }} · {{ item.respuesta ? "Sí" : "No" }}
+                </button>
+              </TransitionGroup>
+              <button type="button" class="annex-screen-continue" @click="solicitarCierre(true)">
+                Continuar
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
               </button>
-            </TransitionGroup>
-            <button type="button" class="annex-screen-continue" @click="solicitarCierre(true)">
-              Continuar
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
-            </button>
-          </main>
-        </Transition>
+            </main>
+          </Transition>
+        </div>
       </div>
     </Transition>
   </Teleport>
@@ -191,6 +211,7 @@ const indiceActual = ref(0);
 const direccion = ref("forward");
 const procesando = ref(false);
 const respuestaAnimada = ref("");
+const confirmacionVisible = ref(false);
 const ondaVisible = ref(false);
 const ondaExpandida = ref(false);
 const colorOnda = ref("yes");
@@ -278,9 +299,11 @@ function alEntrarContenido() {
 
 async function enfocarContenido() {
   await nextTick();
-  const destino = anexoActual.value
-    ? document.getElementById(`annex-screen-${anexoActual.value.clave}-si`)
-    : pantalla.value?.querySelector(".annex-screen-continue");
+  const destino = confirmacionVisible.value
+    ? pantalla.value?.querySelector(".annex-screen-confirmation")
+    : anexoActual.value
+      ? document.getElementById(`annex-screen-${anexoActual.value.clave}-si`)
+      : pantalla.value?.querySelector(".annex-screen-continue");
   destino?.focus({ preventScroll: true });
 }
 
@@ -334,16 +357,27 @@ async function transicionarA(indice, sentido, event, respuesta, antesDelCambio =
   procesando.value = true;
   const accion = ++secuencia;
   respuestaAnimada.value = respuesta || "";
-  if (respuesta) await expandirOnda(event, respuesta);
-  else if (event) await expandirOnda(event, "NO");
+  if (!respuesta && event) await expandirOnda(event, "NO");
 
-  if (respuesta) await pausa(movimientoReducido() ? 150 : 280);
+  if (respuesta) {
+    await pausa(movimientoReducido() ? 120 : 220);
+    if (accion !== secuencia) return;
+    const entradaConfirmacion = esperarEntrada();
+    confirmacionVisible.value = true;
+    await nextTick();
+    await entradaConfirmacion;
+    if (accion !== secuencia) return;
+    await pausa(movimientoReducido() ? 180 : 760);
+  }
   if (accion !== secuencia) return;
 
-  const claveAnterior = esFinal.value ? "final" : anexoActual.value?.clave;
+  const claveAnterior = confirmacionVisible.value
+    ? "confirmation"
+    : esFinal.value ? "final" : anexoActual.value?.clave;
   antesDelCambio?.();
   direccion.value = sentido;
   indiceActual.value = indice;
+  confirmacionVisible.value = false;
   const claveNueva = props.sinAnexos || indice >= anexos.length ? "final" : anexos[indice]?.clave;
   if (claveAnterior === claveNueva) {
     await nextTick();
@@ -409,6 +443,7 @@ function solicitarCierre(continuar = false) {
   if (!continuar && props.cambiosPendientes && !window.confirm("Hay respuestas de anexos sin guardar. ¿Cerrar y conservarlas sin guardar?")) return;
   secuencia += 1;
   procesando.value = false;
+  confirmacionVisible.value = false;
   ondaVisible.value = false;
   ondaExpandida.value = false;
   respuestaAnimada.value = "";
@@ -468,6 +503,7 @@ watch(() => props.abierta, (abierta) => {
     ubicarOrigen();
     indiceActual.value = props.indiceInicial >= anexos.length ? anexos.length : props.indiceInicial;
     if (indiceActual.value < 0 || !Number.isInteger(indiceActual.value)) indiceActual.value = primerPendiente();
+    confirmacionVisible.value = false;
     bloquearScroll();
   }
 }, { immediate: true });
@@ -491,8 +527,14 @@ onBeforeUnmount(() => {
   overflow: auto;
   overscroll-behavior: contain;
   padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
-  background: linear-gradient(135deg, #062c22 0%, #0b4935 48%, #073729 100%);
-  color: #f7fbf8;
+  background-image:
+    linear-gradient(180deg, rgb(23 23 23 / 34%) 0%, rgb(23 23 23 / 46%) 55%, rgb(23 23 23 / 38%) 100%),
+    url("/logos/iph-preguntas.jpg");
+  background-position: center 48%;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  color: #fff;
   isolation: isolate;
 }
 
@@ -510,20 +552,20 @@ onBeforeUnmount(() => {
   aspect-ratio: 1;
   border-radius: 50%;
   filter: blur(80px);
-  opacity: 0.22;
+  opacity: 0.06;
   animation: annex-blob-float 25s ease-in-out infinite alternate;
 }
 
 .blob-one {
   top: -16%;
   left: -9%;
-  background: #4fc98e;
+  background: #dadada;
 }
 
 .blob-two {
   right: -14%;
   bottom: -19%;
-  background: #58a985;
+  background: #858585;
   animation-duration: 29s;
   animation-delay: -8s;
 }
@@ -532,7 +574,7 @@ onBeforeUnmount(() => {
   top: 43%;
   left: 47%;
   width: min(30vw, 25rem);
-  background: #167754;
+  background: #252525;
   animation-duration: 22s;
   animation-delay: -12s;
 }
@@ -549,11 +591,11 @@ onBeforeUnmount(() => {
 }
 
 .annex-screen-wave.is-yes {
-  --wave-color: #18764d;
+  --wave-color: #dadada;
 }
 
 .annex-screen-wave.is-no {
-  --wave-color: #44524c;
+  --wave-color: #252525;
 }
 
 .annex-screen-wave.is-expanded {
@@ -564,12 +606,35 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 2;
   display: grid;
-  width: min(1040px, 100%);
-  grid-template-columns: 3rem minmax(0, 1fr) 3rem;
+  width: min(920px, 100%);
+  grid-template-columns: 2.85rem minmax(0, 1fr) 2.85rem;
+  grid-template-areas:
+    "back brand close"
+    "progress progress progress";
   align-items: center;
   gap: clamp(0.7rem, 3vw, 2rem);
   margin: 0 auto;
   padding-top: 0.35rem;
+}
+
+.annex-screen-back {
+  grid-area: back;
+}
+
+.annex-screen-brand {
+  grid-area: brand;
+  margin: 0;
+  color: #dadada;
+  font-size: clamp(0.88rem, 2vw, 1.08rem);
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.annex-screen-close {
+  grid-area: close;
 }
 
 .annex-screen-icon-button {
@@ -578,17 +643,17 @@ onBeforeUnmount(() => {
   height: 2.85rem;
   place-items: center;
   padding: 0;
-  border: 1px solid rgb(255 255 255 / 24%);
+  border: 1px solid rgb(218 218 218 / 42%);
   border-radius: 50%;
-  background: rgb(255 255 255 / 8%);
-  color: #f4fbf7;
+  background: rgb(23 23 23 / 40%);
+  color: #fff;
   cursor: pointer;
   transition: background-color 180ms ease, transform 180ms ease;
 }
 
 .annex-screen-icon-button:hover:not(:disabled) {
   transform: scale(1.05);
-  background: rgb(255 255 255 / 16%);
+  background: rgb(218 218 218 / 20%);
 }
 
 .annex-screen-icon-button:active:not(:disabled) {
@@ -613,11 +678,14 @@ onBeforeUnmount(() => {
 
 .annex-screen-progress {
   display: grid;
-  gap: 0.55rem;
+  grid-area: progress;
+  width: min(480px, 100%);
+  justify-self: center;
+  gap: 0.45rem;
 }
 
 .annex-screen-progress-label {
-  color: rgb(240 249 244 / 72%);
+  color: rgb(218 218 218 / 88%);
   font-size: 0.76rem;
   font-weight: 650;
   letter-spacing: 0.11em;
@@ -642,31 +710,53 @@ onBeforeUnmount(() => {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #a7e8c1;
+  background: #dadada;
   transition: width 600ms cubic-bezier(.22, 1, .36, 1);
 }
 
 .annex-screen-segments > span.is-done i {
-  background: #7ed5a3;
+  background: #fff;
 }
 
 .annex-screen-segments > span.is-active {
   animation: annex-segment-pulse 1.8s ease-in-out infinite;
 }
 
+.annex-screen-stage {
+  display: flex;
+  width: min(840px, 100%);
+  min-height: 0;
+  flex: 1;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  perspective: 1300px;
+  perspective-origin: center;
+  transform-style: preserve-3d;
+}
+
 .annex-screen-content {
   position: relative;
   z-index: 1;
+  box-sizing: border-box;
   display: flex;
-  width: min(840px, 100%);
-  min-height: min(680px, calc(100svh - 8rem));
-  flex: 1;
+  width: min(760px, 100%);
+  min-height: clamp(22rem, 58svh, 35rem);
+  flex: 0 1 auto;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  align-self: center;
-  padding: clamp(2rem, 8vh, 6rem) 1rem;
+  padding: clamp(2rem, 8vh, 6rem) clamp(1.2rem, 5vw, 3rem);
+  border: 1px solid rgb(218 218 218 / 38%);
+  border-radius: clamp(1.25rem, 3vw, 2rem);
+  background: rgb(23 23 23 / 40%);
+  box-shadow: 0 1.2rem 3.5rem rgb(0 0 0 / 24%), inset 0 1px rgb(255 255 255 / 10%);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
   text-align: center;
+  isolation: isolate;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
 }
 
 .annex-screen-watermark {
@@ -674,7 +764,7 @@ onBeforeUnmount(() => {
   z-index: -1;
   top: 50%;
   left: 50%;
-  color: rgb(235 255 243 / 8%);
+  color: rgb(218 218 218 / 8%);
   font-size: clamp(18rem, 62vh, 48rem);
   font-weight: 850;
   line-height: 0.8;
@@ -685,7 +775,7 @@ onBeforeUnmount(() => {
 
 .annex-screen-kicker {
   margin: 0 0 clamp(0.7rem, 2vh, 1.25rem);
-  color: #a9dfbf;
+  color: #dadada;
   font-size: clamp(0.76rem, 1.5vw, 0.9rem);
   font-weight: 750;
   letter-spacing: 0.2em;
@@ -705,7 +795,7 @@ onBeforeUnmount(() => {
 
 .annex-screen-question {
   margin: clamp(1.1rem, 3vh, 2rem) 0 1.3rem;
-  color: rgb(245 251 247 / 78%);
+  color: rgb(255 255 255 / 82%);
   font-size: clamp(0.95rem, 2vw, 1.2rem);
 }
 
@@ -726,9 +816,8 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 0.8rem;
   padding: 0.9rem 1.6rem;
-  border: 1px solid rgb(255 255 255 / 24%);
+  border: 1px solid rgb(218 218 218 / 55%);
   border-radius: 999px;
-  color: #fff;
   font-size: clamp(1.05rem, 2.5vw, 1.35rem);
   font-weight: 700;
   cursor: pointer;
@@ -736,12 +825,15 @@ onBeforeUnmount(() => {
 }
 
 .annex-screen-choice.is-yes {
-  background: #238456;
+  border-color: #fff;
+  background: #dadada;
+  color: #252525;
   box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 16%);
 }
 
 .annex-screen-choice.is-no {
-  background: #485650;
+  background: #252525;
+  color: #fff;
   box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 14%);
 }
 
@@ -756,7 +848,7 @@ onBeforeUnmount(() => {
 }
 
 .annex-screen-choice.is-selected {
-  border-color: #e7fff0;
+  border-color: #fff;
 }
 
 .annex-screen-choice:focus-visible,
@@ -764,7 +856,7 @@ onBeforeUnmount(() => {
 .annex-screen-none:focus-visible,
 .annex-screen-chip:focus-visible,
 .annex-screen-continue:focus-visible {
-  outline: 3px solid #f1d076;
+  outline: 3px solid #dadada;
   outline-offset: 4px;
 }
 
@@ -772,7 +864,8 @@ onBeforeUnmount(() => {
   cursor: wait;
 }
 
-.annex-choice-check {
+.annex-choice-check,
+.annex-choice-cross {
   position: relative;
   z-index: 1;
   width: 1.35rem;
@@ -799,9 +892,9 @@ onBeforeUnmount(() => {
   margin-top: clamp(1.5rem, 4vh, 2.6rem);
   padding: 0.4rem 0.75rem;
   border: 0;
-  border-bottom: 1px solid rgb(218 241 227 / 45%);
+  border-bottom: 1px solid rgb(218 218 218 / 50%);
   background: transparent;
-  color: rgb(227 244 234 / 78%);
+  color: rgb(218 218 218 / 88%);
   font-size: 0.86rem;
   cursor: pointer;
   transition: color 160ms ease, border-color 160ms ease;
@@ -820,6 +913,48 @@ onBeforeUnmount(() => {
   max-width: 760px;
 }
 
+.annex-screen-confirmation {
+  gap: 1rem;
+}
+
+.annex-confirmation-check {
+  display: grid;
+  width: clamp(4.5rem, 11vw, 6rem);
+  height: clamp(4.5rem, 11vw, 6rem);
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  background: #dadada;
+  box-shadow: 0 0 0 0.6rem rgb(218 218 218 / 12%), 0 0.8rem 2rem rgb(0 0 0 / 22%);
+  color: #252525;
+  animation: annex-finish-flash 500ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.annex-confirmation-check svg {
+  width: 58%;
+  height: 58%;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.7;
+  animation: annex-check-draw 320ms ease 120ms forwards;
+}
+
+.annex-screen-confirmation h1 {
+  font-size: clamp(1.8rem, 4.6vw, 3.2rem);
+}
+
+.annex-screen-confirmation p {
+  margin: 0;
+  color: rgb(255 255 255 / 82%);
+  font-size: clamp(0.95rem, 1.8vw, 1.1rem);
+}
+
 .annex-finish-mark {
   position: relative;
   display: grid;
@@ -827,10 +962,10 @@ onBeforeUnmount(() => {
   height: clamp(4.5rem, 11vw, 7rem);
   place-items: center;
   margin-bottom: clamp(1.3rem, 4vh, 2.2rem);
-  border: 1px solid rgb(194 241 210 / 44%);
+  border: 1px solid rgb(218 218 218 / 55%);
   border-radius: 50%;
-  background: rgb(91 190 128 / 15%);
-  color: #b6f0ca;
+  background: rgb(218 218 218 / 16%);
+  color: #dadada;
   animation: annex-finish-flash 700ms cubic-bezier(.22, 1, .36, 1) both;
 }
 
@@ -838,7 +973,7 @@ onBeforeUnmount(() => {
 .annex-finish-mark::after {
   position: absolute;
   inset: -0.6rem;
-  border: 1px solid rgb(183 238 202 / 32%);
+  border: 1px solid rgb(218 218 218 / 32%);
   border-radius: 50%;
   content: "";
   animation: annex-finish-particles 900ms ease-out both;
@@ -870,7 +1005,7 @@ onBeforeUnmount(() => {
 
 .annex-screen-finish-note {
   margin: 0.9rem 0 0;
-  color: rgb(245 251 247 / 74%);
+  color: rgb(255 255 255 / 76%);
   font-size: clamp(0.88rem, 1.7vw, 1rem);
 }
 
@@ -885,10 +1020,10 @@ onBeforeUnmount(() => {
 .annex-screen-chip {
   min-height: 2.4rem;
   padding: 0.55rem 0.95rem;
-  border: 1px solid rgb(232 248 238 / 30%);
+  border: 1px solid rgb(218 218 218 / 38%);
   border-radius: 999px;
-  background: rgb(255 255 255 / 9%);
-  color: #f5fbf7;
+  background: rgb(23 23 23 / 48%);
+  color: #fff;
   font-size: 0.82rem;
   font-weight: 650;
   cursor: pointer;
@@ -897,7 +1032,7 @@ onBeforeUnmount(() => {
 
 .annex-screen-chip:hover:not(:disabled) {
   transform: translateY(-2px);
-  background: rgb(255 255 255 / 17%);
+  background: rgb(218 218 218 / 20%);
 }
 
 .annex-screen-continue {
@@ -908,10 +1043,10 @@ onBeforeUnmount(() => {
   gap: 0.7rem;
   margin-top: clamp(1.6rem, 4vh, 2.5rem);
   padding: 0.8rem 1.5rem;
-  border: 1px solid #c5f0d4;
+  border: 1px solid #fff;
   border-radius: 999px;
-  background: #d7f4e1;
-  color: #0b4935;
+  background: #dadada;
+  color: #252525;
   font-size: 0.95rem;
   font-weight: 750;
   cursor: pointer;
@@ -941,37 +1076,37 @@ onBeforeUnmount(() => {
 
 .annex-content-enter-active,
 .annex-content-back-enter-active {
-  transition: transform 500ms cubic-bezier(.22, 1, .36, 1), opacity 500ms ease, filter 500ms ease;
+  transition: transform 420ms cubic-bezier(.22, 1, .36, 1), opacity 420ms ease, filter 420ms ease;
   will-change: transform, opacity, filter;
 }
 
 .annex-content-leave-active,
 .annex-content-back-leave-active {
-  transition: transform 220ms ease-in, opacity 220ms ease-in, filter 220ms ease-in;
+  transition: transform 340ms cubic-bezier(.55, 0, .45, 1), opacity 340ms ease-in, filter 340ms ease-in;
   will-change: transform, opacity, filter;
 }
 
 .annex-content-enter-from {
-  transform: translateY(28px) scale(0.97);
-  filter: blur(5px);
+  transform: rotateY(48deg) translateZ(-30px) scale(0.98);
+  filter: blur(2px);
   opacity: 0;
 }
 
 .annex-content-leave-to {
-  transform: translateY(-24px) scale(0.97);
-  filter: blur(3px);
+  transform: rotateY(-48deg) translateZ(-30px) scale(0.97);
+  filter: blur(2px);
   opacity: 0;
 }
 
 .annex-content-back-enter-from {
-  transform: translateY(-28px) scale(0.97);
-  filter: blur(5px);
+  transform: rotateY(-48deg) translateZ(-30px) scale(0.98);
+  filter: blur(2px);
   opacity: 0;
 }
 
 .annex-content-back-leave-to {
-  transform: translateY(24px) scale(0.97);
-  filter: blur(3px);
+  transform: rotateY(48deg) translateZ(-30px) scale(0.97);
+  filter: blur(2px);
   opacity: 0;
 }
 
@@ -1051,9 +1186,9 @@ onBeforeUnmount(() => {
 }
 
 @keyframes annex-finish-flash {
-  0% { transform: scale(0.72); box-shadow: 0 0 0 0 rgb(157 232 181 / 35%); opacity: 0; }
-  60% { transform: scale(1.06); box-shadow: 0 0 0 1rem rgb(157 232 181 / 0%); opacity: 1; }
-  100% { transform: scale(1); box-shadow: 0 0 0 1rem rgb(157 232 181 / 0%); opacity: 1; }
+  0% { transform: scale(0.72); box-shadow: 0 0 0 0 rgb(218 218 218 / 35%); opacity: 0; }
+  60% { transform: scale(1.06); box-shadow: 0 0 0 1rem rgb(218 218 218 / 0%); opacity: 1; }
+  100% { transform: scale(1); box-shadow: 0 0 0 1rem rgb(218 218 218 / 0%); opacity: 1; }
 }
 
 @keyframes annex-finish-particles {
@@ -1062,7 +1197,7 @@ onBeforeUnmount(() => {
 }
 
 @keyframes annex-segment-pulse {
-  50% { box-shadow: 0 0 0 4px rgb(172 238 193 / 15%); }
+  50% { box-shadow: 0 0 0 4px rgb(218 218 218 / 15%); }
 }
 
 @keyframes annex-blob-float {
@@ -1087,8 +1222,21 @@ onBeforeUnmount(() => {
   }
 
   .annex-screen-content {
-    min-height: calc(100svh - 6.5rem);
-    padding: 3rem 0.2rem;
+    min-height: min(32rem, calc(100svh - 7rem));
+    padding: 2.4rem 1rem;
+  }
+
+  .annex-screen {
+    background-position: 46% center;
+  }
+
+  .annex-screen-header {
+    gap: 0.55rem;
+  }
+
+  .annex-screen-brand {
+    font-size: clamp(0.78rem, 3vw, 0.98rem);
+    letter-spacing: 0.08em;
   }
 
   .annex-screen-watermark {
@@ -1131,6 +1279,11 @@ onBeforeUnmount(() => {
 
   .annex-screen-choice {
     font-size: 1rem;
+  }
+
+  .annex-screen-brand {
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
   }
 }
 
@@ -1184,6 +1337,15 @@ onBeforeUnmount(() => {
   .annex-content-back-enter-active .annex-screen-choice,
   .annex-final-chip-enter-active {
     animation: annex-reduced-fade 180ms ease both;
+  }
+
+  .annex-confirmation-check,
+  .annex-confirmation-check svg {
+    animation: none;
+  }
+
+  .annex-confirmation-check svg {
+    stroke-dashoffset: 0;
   }
 
   .annex-finish-mark,
