@@ -1,5 +1,36 @@
 <template>
-  <form ref="formulario" class="disposicion-form" @submit.prevent="guardar">
+  <div class="disposicion-captura-shell">
+    <nav class="disposicion-modo-switch" aria-label="Modo de captura">
+      <button
+        type="button"
+        :class="{ 'is-active': modoCaptura === 'guiada' }"
+        :aria-pressed="modoCaptura === 'guiada'"
+        @click="modoCaptura = 'guiada'"
+      >
+        Captura guiada
+      </button>
+      <button
+        type="button"
+        :class="{ 'is-active': modoCaptura === 'completa' }"
+        :aria-pressed="modoCaptura === 'completa'"
+        @click="modoCaptura = 'completa'"
+      >
+        Formulario completo
+      </button>
+    </nav>
+
+    <CapturaGuiadaPuestaDisposicion
+      v-if="modoCaptura === 'guiada'"
+      :iph-id="iphId"
+      :iph="iph"
+      :form="form"
+      :error-guardado-externo="errorGuardado"
+      @guardar="guardar"
+      @revisar-formulario="cambiarFormularioCompleto"
+      @receptor="capturarReceptor"
+    />
+
+  <form v-if="modoCaptura === 'completa'" ref="formulario" class="disposicion-form" @submit.prevent="guardar">
     <section class="disposicion-block" aria-labelledby="anexos-titulo">
       <h2 id="anexos-titulo">Apartado 1.1 Fecha y hora de la puesta a disposición</h2>
       <div class="disposicion-metadata">
@@ -103,7 +134,7 @@
       </div>
     </section>
 
-    <section class="disposicion-block" aria-labelledby="receptor-titulo">
+    <section id="receptor-puesta" class="disposicion-block" aria-labelledby="receptor-titulo">
       <h2 id="receptor-titulo">Fiscal/Autoridad que recibe la puesta a disposición</h2>
       <div class="disposicion-person-grid">
         <div>
@@ -202,19 +233,35 @@
       </button>
     </footer>
   </form>
+  </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { leerCaptura, guardarCaptura } from "../../store/capturas";
 import { eliminarAdjunto, guardarAdjunto, listarAdjuntos, obtenerAdjunto } from "../../store/attachments";
 import AnexosPantalla from "./AnexosPantalla.vue";
+import CapturaGuiadaPuestaDisposicion from "./CapturaGuiadaPuestaDisposicion.vue";
 
 const props = defineProps({
   iphId: { type: [String, Number], required: true },
   iph: { type: Object, default: null },
 });
 const emit = defineEmits(["guardado", "siguiente", "anexos-actualizados"]);
+const modoCaptura = ref("guiada");
+
+function cambiarFormularioCompleto() {
+  modoCaptura.value = "completa";
+}
+
+function capturarReceptor() {
+  modoCaptura.value = "completa";
+  nextTick(() => {
+    const receptor = document.getElementById("receptor-puesta");
+    receptor?.scrollIntoView({ behavior: "smooth", block: "start" });
+    receptor?.querySelector("input")?.focus({ preventScroll: true });
+  });
+}
 
 const anexos = [
   { clave: "A", nombre: "Anexo A. Detención(es)", obligatorio: true },
@@ -489,6 +536,38 @@ onMounted(cargarBorrador);
 </script>
 
 <style scoped>
+.disposicion-captura-shell {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.disposicion-modo-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(420px, 100%);
+  padding: 3px;
+  border: 1px solid #d2d2d2;
+  border-radius: 9px;
+  background: #ededed;
+}
+
+.disposicion-modo-switch button {
+  min-height: 44px;
+  padding: 0.55rem 0.8rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #555;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.disposicion-modo-switch button.is-active {
+  background: #6b1d3f;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(107, 29, 63, 0.18);
+}
+
 .disposicion-annex-progress-wrap {
   width: min(calc(100% - 2rem), 420px);
   margin: 0.6rem auto 0.45rem;
