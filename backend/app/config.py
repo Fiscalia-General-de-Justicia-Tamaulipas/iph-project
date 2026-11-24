@@ -52,6 +52,11 @@ class Config:
 
     PDF_OUTPUT_DIR = os.getenv("PDF_OUTPUT_DIR", os.path.join(os.path.dirname(__file__), "generated_pdfs"))
 
+    VOICE_SERVICE_URL = os.getenv("VOICE_SERVICE_URL", "http://voz:8000")
+    VOICE_MAX_AUDIO_BYTES = 10 * 1024 * 1024
+    VOICE_CONNECT_TIMEOUT_SECONDS = 3
+    VOICE_READ_TIMEOUT_SECONDS = 90
+
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 
 
