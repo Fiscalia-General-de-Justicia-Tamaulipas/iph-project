@@ -9,13 +9,13 @@
       <button
         type="button"
         class="iph-dictation-button"
-        :disabled="status === 'checking' || status === 'starting' || status === 'unsupported' || status === 'stopping'"
-        :aria-label="status === 'listening' ? 'Detener dictado' : 'Iniciar dictado en español'"
-        :aria-pressed="status === 'listening'"
-        :title="status === 'listening' ? 'Detener dictado' : 'Dictado en español'"
+        :disabled="status === 'checking' || status === 'starting' || status === 'processing' || status === 'unsupported'"
+        :aria-label="status === 'recording' ? 'Detener grabación' : 'Grabar dictado'"
+        :aria-pressed="status === 'recording'"
+        :title="status === 'recording' ? 'Detener y transcribir' : 'Grabar dictado en español'"
         @click="alternarDictado"
       >
-        <svg v-if="status !== 'listening'" viewBox="0 0 24 24" aria-hidden="true">
+        <svg v-if="status !== 'recording'" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z" />
           <path d="M19 11a7 7 0 0 1-14 0M12 18v4m-4 0h8" />
         </svg>
@@ -30,6 +30,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import api from "../store/api";
+
+// Deja margen para que el contenedor AAC/MP4 no exceda 60 s por padding del codificador.
+const MAX_RECORDING_MS = 59_000;
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
 const props = defineProps({
   target: { type: Object, default: null },
@@ -37,280 +42,193 @@ const props = defineProps({
 
 const status = ref("checking");
 const mensaje = ref("");
-const textoParcial = ref("");
 const positionStyle = ref({ left: "0px", top: "0px" });
-const mensajeVisible = computed(() => {
-  if (status.value === "listening" && textoParcial.value) {
-    return `Escuchando: ${textoParcial.value}`;
-  }
-  return mensaje.value;
-});
+const mensajeVisible = computed(() => mensaje.value);
 
-let recognitionConstructor = null;
-let recognition = null;
-let requestId = 0;
+let mediaRecorder = null;
+let mediaStream = null;
+let audioChunks = [];
+let recordingTimer = 0;
 let positionFrame = 0;
-let processedResults = new Map();
-let activeSessionStop = null;
 let boundTarget = null;
-let idiomaActual = 0;
-const idiomas = ["es-MX", "es-US", "es-ES"];
+let sessionId = 0;
 
-function obtenerConstructor() {
-  if (typeof window === "undefined") return null;
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
-}
-
-function setError(message) {
+function mostrarError(message) {
   status.value = "error";
-  mensaje.value = message;
-  textoParcial.value = "";
+  mensaje.value = `${message} Si lo prefieres, usa el micrófono del teclado del dispositivo.`;
 }
 
-async function comprobarDisponibilidad(target, currentRequest) {
-  recognitionConstructor = null;
-  status.value = "checking";
-  mensaje.value = "Verificando soporte de dictado…";
-  textoParcial.value = "";
-
-  const Constructor = obtenerConstructor();
-  if (!Constructor) {
-    status.value = "unsupported";
-    mensaje.value = "Este navegador no admite SpeechRecognition. Puedes continuar escribiendo.";
-    return;
+function mensajePermiso(error) {
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+    const esIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    return esIOS
+      ? "Permiso de micrófono denegado. En iPad/iPhone revisa Ajustes > Safari > Micrófono y permite el acceso para este sitio."
+      : "Permiso de micrófono denegado. Permite el acceso al micrófono en la configuración del navegador.";
   }
-  if (currentRequest !== requestId || props.target !== target) return;
-  recognitionConstructor = Constructor;
-  status.value = "ready";
-  mensaje.value = "Dictado disponible; se intentará es-MX y luego es-US/es-ES. El navegador puede procesar audio mediante su servicio de voz.";
+  if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") {
+    return "No se encontró un micrófono disponible.";
+  }
+  if (error?.name === "NotReadableError" || error?.name === "TrackStartError") {
+    return "El micrófono está ocupado o no se pudo iniciar. Cierra otras aplicaciones que lo estén usando e inténtalo de nuevo.";
+  }
+  if (!window.isSecureContext) return "El acceso al micrófono requiere HTTPS.";
+  return "No se pudo iniciar la grabación. Revisa el permiso y la disponibilidad del micrófono.";
 }
 
-function insertarTexto(transcript, currentRecognition) {
-  const target = props.target;
-  if (!target || target !== boundTarget || !target.isConnected || target.disabled || target.readOnly) return;
-  if (recognition !== currentRecognition) return;
+function mimePreferido() {
+  if (typeof MediaRecorder === "undefined") return "";
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const candidatos = ios
+    ? ["audio/mp4", "audio/mp4;codecs=mp4a.40.2", "audio/webm;codecs=opus", "audio/webm"]
+    : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/mp4;codecs=mp4a.40.2"];
+  return candidatos.find((tipo) => MediaRecorder.isTypeSupported?.(tipo)) || "";
+}
 
+function liberarMicrofono() {
+  if (recordingTimer) window.clearTimeout(recordingTimer);
+  recordingTimer = 0;
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    mediaStream = null;
+  }
+  mediaRecorder = null;
+}
+
+function insertarTexto(transcript, target) {
+  if (!target || target !== boundTarget || !target.isConnected || target.disabled || target.readOnly) return;
   const texto = String(transcript || "").trim();
-  if (!texto) return;
+  if (!texto) throw new Error("El servicio no devolvió texto para insertar.");
 
   const valorActual = target.value;
   const inicio = Number.isInteger(target.selectionStart) ? target.selectionStart : valorActual.length;
   const fin = Number.isInteger(target.selectionEnd) ? target.selectionEnd : inicio;
   const antes = valorActual.slice(0, inicio);
   const despues = valorActual.slice(fin);
-  const separadorInicial = antes
-    && !/[\s¿¡([{]$/.test(antes)
-    && !/^[,.;:!?…)}\]]/.test(texto)
-    ? " "
-    : "";
-  const separadorFinal = despues
-    && !/^\s/.test(despues)
-    && !/^[,.;:!?…)}\]]/.test(despues)
-    ? " "
-    : "";
-  const insercion = `${separadorInicial}${texto}${separadorFinal}`;
+  const separadorInicial = antes && !/[\s¿¡([{]$/.test(antes) && !/^[,.;:!?…)}\]]/.test(texto) ? " " : "";
+  const separadorFinal = despues && !/^\s/.test(despues) && !/^[,.;:!?…)}\]]/.test(despues) ? " " : "";
+  target.setRangeText(`${separadorInicial}${texto}${separadorFinal}`, inicio, fin, "end");
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+}
 
-  try {
-    target.setRangeText(insercion, inicio, fin, "end");
-    target.dispatchEvent(new Event("input", { bubbles: true }));
-  } catch {
-    setError("No se pudo insertar el texto reconocido en este campo.");
+async function transcribir(blob, target, currentSession) {
+  liberarMicrofono();
+  if (!blob?.size) {
+    if (currentSession === sessionId) mostrarError("La grabación quedó vacía. Inténtalo de nuevo.");
+    return;
   }
-}
-
-function quitarEventos(currentRecognition) {
-  currentRecognition.onstart = null;
-  currentRecognition.onresult = null;
-  currentRecognition.onerror = null;
-  currentRecognition.onend = null;
-}
-
-function abortarDictado(silent = false) {
-  const currentRecognition = recognition;
-  if (!currentRecognition) return;
-
-  recognition = null;
-  quitarEventos(currentRecognition);
-  if (activeSessionStop === stopActiveSession) activeSessionStop = null;
-  try {
-    currentRecognition.abort();
-  } catch {
-    // La sesión puede haber terminado antes de recibir la orden de cierre.
-  }
-
-  status.value = silent ? "checking" : "stopped";
-  mensaje.value = silent ? "" : "Dictado detenido.";
-  textoParcial.value = "";
-}
-
-function stopActiveSession() {
-  abortarDictado(true);
-}
-
-function detenerDictado() {
-  const currentRecognition = recognition;
-  if (!currentRecognition) return;
-  status.value = "stopping";
-  mensaje.value = "Deteniendo dictado…";
-  textoParcial.value = "";
-  try {
-    currentRecognition.stop();
-  } catch {
-    abortarDictado(false);
-  }
-}
-
-function explicarError(errorCode) {
-  switch (errorCode) {
-    case "not-allowed":
-    case "service-not-allowed":
-      return "Permiso de micrófono denegado. Autoriza el micrófono en el navegador y vuelve a intentar.";
-    case "audio-capture":
-      return "No se encontró un micrófono disponible.";
-    case "network":
-      return "Falló el servicio de reconocimiento o no hay conexión de red. Revisa la conexión o usa dictado on-premise.";
-    case "language-not-supported":
-    case "language-unavailable":
-      return "El navegador no admite los idiomas es-MX, es-US ni es-ES.";
-    case "no-speech":
-      return "No se detectó voz. Puedes volver a intentarlo.";
-    default:
-      return "Ocurrió un error durante el dictado. Puedes continuar escribiendo manualmente.";
-  }
-}
-
-function iniciarDictado() {
-  if (!recognitionConstructor || !props.target || status.value === "checking") return;
-  if (typeof window !== "undefined" && !window.isSecureContext) {
-    setError("El micrófono requiere HTTPS. Para pruebas locales, usa localhost o el flag de Chrome --unsafely-treat-insecure-origin-as-secure=http://HOST:8080 (solo desarrollo). Puedes seguir escribiendo.");
+  if (blob.size > MAX_AUDIO_BYTES) {
+    if (currentSession === sessionId) mostrarError("La grabación supera el máximo de 10 MB.");
     return;
   }
 
-  if (activeSessionStop && activeSessionStop !== stopActiveSession) activeSessionStop();
-  if (recognition) abortarDictado(true);
-
+  status.value = "processing";
+  mensaje.value = "Procesando dictado de forma segura en el servidor institucional…";
   try {
-    const currentRecognition = new recognitionConstructor();
-    idiomaActual = 0;
-    currentRecognition.lang = idiomas[idiomaActual];
-    currentRecognition.continuous = true;
-    currentRecognition.interimResults = true;
-    currentRecognition.maxAlternatives = 1;
-
-    recognition = currentRecognition;
-    boundTarget = props.target;
-    processedResults = new Map();
-    activeSessionStop = stopActiveSession;
-
-    currentRecognition.onstart = () => {
-      if (recognition !== currentRecognition) return;
-      status.value = "listening";
-      mensaje.value = "Escuchando en el dispositivo…";
-    };
-
-    currentRecognition.onresult = (event) => {
-      if (recognition !== currentRecognition) return;
-      let parcial = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const resultado = event.results[index];
-        const transcript = resultado?.[0]?.transcript || "";
-        if (resultado?.isFinal) {
-          if (processedResults.get(index) === transcript) continue;
-          processedResults.set(index, transcript);
-          insertarTexto(transcript, currentRecognition);
-        } else {
-          parcial += transcript;
-        }
-      }
-      textoParcial.value = parcial.trim();
-    };
-
-    currentRecognition.onerror = (event) => {
-      if (recognition !== currentRecognition) return;
-      if (["language-not-supported", "language-unavailable"].includes(event.error) && idiomaActual < idiomas.length - 1) {
-        const siguienteIdioma = idiomas[idiomaActual + 1];
-        const target = props.target;
-        abortarDictado(true);
-        idiomaActual += 1;
-        mensaje.value = `es-MX no disponible; intentando ${siguienteIdioma}…`;
-        status.value = "starting";
-        iniciarConIdioma(target, siguienteIdioma);
-        return;
-      }
-      setError(explicarError(event.error));
-    };
-
-    currentRecognition.onend = () => {
-      if (recognition !== currentRecognition) return;
-      recognition = null;
-      if (activeSessionStop === stopActiveSession) activeSessionStop = null;
-      if (status.value !== "error") {
-        status.value = "stopped";
-        mensaje.value = "Dictado detenido.";
-        textoParcial.value = "";
-      }
-    };
-
-    status.value = "starting";
-    mensaje.value = `Iniciando reconocimiento (${idiomas[idiomaActual]})…`;
-    currentRecognition.start();
-  } catch {
-    if (recognition) {
-      const currentRecognition = recognition;
-      recognition = null;
-      quitarEventos(currentRecognition);
-      try {
-        currentRecognition.abort();
-      } catch {
-        // No hay sesión activa que pueda cerrarse.
-      }
+    const body = new FormData();
+    const extension = blob.type.includes("mp4") ? "mp4" : blob.type.includes("webm") ? "webm" : "audio";
+    body.append("audio", blob, `dictado.${extension}`);
+    const { data } = await api.post("/voz/transcribir", body, { timeout: 100_000 });
+    if (currentSession !== sessionId || target !== boundTarget) return;
+    insertarTexto(data?.text, target);
+    status.value = "ready";
+    mensaje.value = "Transcripción insertada. Puedes continuar escribiendo o grabar otra frase.";
+  } catch (error) {
+    if (currentSession !== sessionId) return;
+    const code = error?.response?.data?.code;
+    if (error?.response?.status === 429 || code === "voice_busy") {
+      mostrarError("El servicio de voz está ocupado. Espera unos segundos y vuelve a intentarlo.");
+    } else if (error?.code === "ECONNABORTED") {
+      mostrarError("La transcripción tardó demasiado y se canceló. Tu campo se conservó; puedes volver a grabar.");
+    } else if (error?.response?.status === 413) {
+      mostrarError("El audio supera el límite permitido de 10 MB.");
+    } else if (code === "audio_too_long") {
+      mostrarError("La grabación superó los 60 segundos. Intenta una frase más corta.");
+    } else if (code === "no_speech") {
+      mostrarError("No se detectó voz en la grabación. Inténtalo de nuevo.");
+    } else if (error?.response?.status === 401) {
+      mostrarError("Tu sesión venció. Inicia sesión de nuevo y vuelve a intentar el dictado.");
+    } else {
+      mostrarError("No se pudo transcribir el audio en el servidor. El texto del campo se conservó.");
     }
-    if (activeSessionStop === stopActiveSession) activeSessionStop = null;
-    setError("No se pudo iniciar el reconocimiento. Revisa el permiso del micrófono, HTTPS y la conexión.");
+  }
+}
+
+function detenerGrabacion(currentSession = sessionId) {
+  const recorder = mediaRecorder;
+  if (!recorder || recorder.state === "inactive") return;
+  if (recordingTimer) window.clearTimeout(recordingTimer);
+  recordingTimer = 0;
+  mensaje.value = "Cerrando grabación…";
+  recorder.onstop = () => {
+    const blob = new Blob(audioChunks, { type: recorder.mimeType || audioChunks[0]?.type || "application/octet-stream" });
+    audioChunks = [];
+    void transcribir(blob, boundTarget, currentSession);
+  };
+  try {
+    recorder.stop();
+  } catch {
+    liberarMicrofono();
+    mostrarError("No se pudo cerrar la grabación correctamente.");
+  }
+}
+
+async function iniciarGrabacion() {
+  if (status.value === "recording" || status.value === "processing" || !props.target) return;
+  const currentSession = ++sessionId;
+  const target = props.target;
+  audioChunks = [];
+
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    mostrarError("Este navegador no permite grabar audio aquí. Verifica HTTPS y el soporte del micrófono.");
+    return;
+  }
+
+  // getUserMedia se invoca de inmediato desde el handler del toque/clic.
+  let streamPromise;
+  try {
+    streamPromise = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+  } catch (error) {
+    mostrarError(mensajePermiso(error));
+    return;
+  }
+
+  status.value = "starting";
+  mensaje.value = "Solicitando acceso al micrófono…";
+  try {
+    mediaStream = await streamPromise;
+    if (currentSession !== sessionId || target !== boundTarget) {
+      mediaStream.getTracks().forEach((track) => track.stop());
+      mediaStream = null;
+      return;
+    }
+    const mimeType = mimePreferido();
+    mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data?.size) audioChunks.push(event.data);
+    };
+    mediaRecorder.onerror = () => {
+      mediaRecorder.onstop = null;
+      liberarMicrofono();
+      audioChunks = [];
+      mostrarError("Ocurrió un problema al grabar. El contenido del campo no cambió.");
+    };
+    mediaRecorder.start(1000);
+    status.value = "recording";
+    mensaje.value = "Grabando. Toca el botón para detener y transcribir (máximo 60 segundos).";
+    recordingTimer = window.setTimeout(() => detenerGrabacion(currentSession), MAX_RECORDING_MS);
+    actualizarPosicion();
+  } catch (error) {
+    liberarMicrofono();
+    audioChunks = [];
+    if (currentSession === sessionId) mostrarError(mensajePermiso(error));
   }
 }
 
 function alternarDictado() {
-  if (status.value === "listening") {
-    detenerDictado();
-    return;
-  }
-  if (status.value === "ready" || status.value === "stopped" || status.value === "error") {
-    iniciarDictado();
-  }
-}
-
-function iniciarConIdioma(target, idioma) {
-  try {
-    const currentRecognition = new recognitionConstructor();
-    currentRecognition.lang = idioma;
-    currentRecognition.continuous = true;
-    currentRecognition.interimResults = true;
-    recognition = currentRecognition;
-    boundTarget = target;
-    activeSessionStop = stopActiveSession;
-    currentRecognition.onstart = () => { if (recognition === currentRecognition) { status.value = "listening"; mensaje.value = `Escuchando (${idioma})…`; } };
-    currentRecognition.onresult = (event) => {
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        if (event.results[index]?.isFinal) insertarTexto(event.results[index][0]?.transcript, currentRecognition);
-        else textoParcial.value = event.results[index]?.[0]?.transcript || "";
-      }
-    };
-    currentRecognition.onerror = (event) => {
-      if (recognition !== currentRecognition) return;
-      if (["language-not-supported", "language-unavailable"].includes(event.error) && idiomaActual < idiomas.length - 1) {
-        const siguienteIdioma = idiomas[++idiomaActual];
-        abortarDictado(true);
-        status.value = "starting";
-        mensaje.value = `Intentando ${siguienteIdioma}…`;
-        iniciarConIdioma(target, siguienteIdioma);
-      } else setError(explicarError(event.error));
-    };
-    currentRecognition.onend = () => { if (recognition === currentRecognition) { recognition = null; status.value = "stopped"; mensaje.value = "Dictado detenido."; } };
-    currentRecognition.start();
-  } catch {
-    setError("No se pudo iniciar el micrófono. Revisa permiso, HTTPS y disponibilidad del dispositivo.");
-  }
+  if (status.value === "recording") detenerGrabacion();
+  else if (["ready", "stopped", "error"].includes(status.value)) void iniciarGrabacion();
 }
 
 function actualizarPosicion() {
@@ -320,49 +238,73 @@ function actualizarPosicion() {
     const target = props.target;
     if (!target?.isConnected) return;
     const rect = target.getBoundingClientRect();
-    const x = Math.max(8, Math.min(rect.right - 46, window.innerWidth - 48));
-    const y = Math.max(8, Math.min(rect.top + 6, window.innerHeight - 48));
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportWidth = viewport?.width || window.innerWidth;
+    const viewportHeight = viewport?.height || window.innerHeight;
+    const rootStyle = getComputedStyle(document.documentElement);
+    const safeTop = parseFloat(rootStyle.getPropertyValue("--safe-area-inset-top")) || 0;
+    const safeRight = parseFloat(rootStyle.getPropertyValue("--safe-area-inset-right")) || 0;
+    const safeBottom = parseFloat(rootStyle.getPropertyValue("--safe-area-inset-bottom")) || 0;
+    const safeLeft = parseFloat(rootStyle.getPropertyValue("--safe-area-inset-left")) || 0;
+    const buttonSize = 48;
+    const x = Math.max(viewportLeft + safeLeft + 8, Math.min(rect.right - buttonSize - 6, viewportLeft + viewportWidth - buttonSize - safeRight - 8));
+    const yDeseada = target instanceof HTMLTextAreaElement
+      ? rect.bottom - buttonSize - 6
+      : rect.top + (rect.height - buttonSize) / 2;
+    const y = Math.max(viewportTop + safeTop + 8, Math.min(yDeseada, viewportTop + viewportHeight - buttonSize - safeBottom - 8));
     positionStyle.value = { left: `${x}px`, top: `${y}px` };
   });
 }
 
 watch(() => props.target, (target, previousTarget) => {
-  requestId += 1;
-  const currentRequest = requestId;
-  abortarDictado(true);
-
-  if (previousTarget?.classList) previousTarget.classList.remove("iph-dictation-target");
+  sessionId += 1;
+  if (mediaRecorder?.state === "recording") {
+    mediaRecorder.onstop = null;
+    try { mediaRecorder.stop(); } catch { /* La sesión pudo terminar entre el evento y stop(). */ }
+  }
+  liberarMicrofono();
+  audioChunks = [];
+  previousTarget?.classList?.remove("iph-dictation-target");
   boundTarget = target || null;
-  recognitionConstructor = null;
 
   if (!target) {
     status.value = "checking";
     mensaje.value = "";
     return;
   }
-
   target.classList?.add("iph-dictation-target");
   actualizarPosicion();
-  comprobarDisponibilidad(target, currentRequest);
+  const supported = typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+  status.value = supported ? "ready" : "unsupported";
+  mensaje.value = supported
+    ? "Dictado privado: el audio se envía únicamente al servidor institucional para transcribirlo."
+    : "Este navegador no permite grabar desde esta página. Puedes usar el micrófono del teclado.";
 }, { immediate: true, flush: "sync" });
 
-function escucharPosicion() {
-  actualizarPosicion();
-}
+function escucharPosicion() { actualizarPosicion(); }
 
 if (typeof window !== "undefined") {
   window.addEventListener("resize", escucharPosicion, { passive: true });
   window.addEventListener("scroll", escucharPosicion, { capture: true, passive: true });
+  window.visualViewport?.addEventListener("resize", escucharPosicion, { passive: true });
+  window.visualViewport?.addEventListener("scroll", escucharPosicion, { passive: true });
 }
 
 onBeforeUnmount(() => {
-  requestId += 1;
-  abortarDictado(true);
-  boundTarget?.classList?.remove("iph-dictation-target");
-  if (typeof window !== "undefined") {
-    window.removeEventListener("resize", escucharPosicion);
-    window.removeEventListener("scroll", escucharPosicion, true);
+  sessionId += 1;
+  if (mediaRecorder?.state === "recording") {
+    mediaRecorder.onstop = null;
+    try { mediaRecorder.stop(); } catch { /* Ya no hay grabación activa. */ }
   }
+  liberarMicrofono();
+  audioChunks = [];
+  boundTarget?.classList?.remove("iph-dictation-target");
+  window.removeEventListener("resize", escucharPosicion);
+  window.removeEventListener("scroll", escucharPosicion, true);
+  window.visualViewport?.removeEventListener("resize", escucharPosicion);
+  window.visualViewport?.removeEventListener("scroll", escucharPosicion);
   if (positionFrame) cancelAnimationFrame(positionFrame);
 });
 </script>

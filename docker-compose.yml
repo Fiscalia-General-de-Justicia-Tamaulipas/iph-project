@@ -1,11 +1,33 @@
-version: "3.9"
-
 # NOTA IMPORTANTE:
 # La base de datos SQL Server YA EXISTE en otro servidor (no se levanta aquí).
-# Este compose solo levanta backend (Flask) y frontend (Vue).
+# Este compose levanta backend (Flask), frontend (Vue) y voz on-premise.
 # La conexión al SQL Server remoto se configura vía variables de entorno (.env)
 
 services:
+  voz:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.voice
+    container_name: iph_voz
+    restart: unless-stopped
+    environment:
+      VOICE_MODEL_DIR: /models
+      VOICE_CPU_THREADS: "4"
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    mem_limit: 3g
+    cpus: 4.0
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 180s
+    networks:
+      - iph_network
+
   backend:
     build:
       context: ./backend
@@ -14,6 +36,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      VOICE_SERVICE_URL: http://voz:8000
     ports:
       - "5000:5000"
     volumes:
@@ -21,6 +45,15 @@ services:
       - pdf_output:/app/app/generated_pdfs
     networks:
       - iph_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      voz:
+        condition: service_healthy
 
   frontend:
     build:
@@ -33,9 +66,16 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - iph_network
+    healthcheck:
+      test: ["CMD", "busybox", "wget", "-q", "--spider", "-T", "3", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   pdf_output:

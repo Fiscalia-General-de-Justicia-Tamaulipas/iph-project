@@ -1,0 +1,28 @@
+FROM python:3.11-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    VOICE_MODEL_DIR=/models \
+    VOICE_CPU_THREADS=4
+
+WORKDIR /app
+
+# ffmpeg/ffprobe decodifican MP4/AAC de iOS y otros contenedores admitidos.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libgomp1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY voice-requirements.txt .
+RUN pip install --no-cache-dir -r voice-requirements.txt
+
+COPY voice_server.py ./voice_server.py
+
+# Descarga y valida el modelo durante el build. Runtime queda en modo offline.
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8', cpu_threads=4, num_workers=1, download_root='/models')"
+
+ENV HF_HUB_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1
+
+EXPOSE 8000
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "4", "--timeout", "100", "--access-logfile", "/dev/null", "--error-logfile", "-", "voice_server:app"]
