@@ -24,8 +24,13 @@
       :iph-id="iphId"
       :iph="iph"
       :form="form"
+      :iniciar-en-anexos="iniciarEnAnexos"
+      :respuestas-anexos="respuestasAnexos"
+      :confirmar-cambio-anexo="confirmarCambioAnexo"
       :error-guardado-externo="errorGuardado"
       @guardar="guardar"
+      @actualizar-anexo="actualizarAnexoGuiado"
+      @ningun-anexo="marcarSinAnexos"
       @revisar-formulario="cambiarFormularioCompleto"
       @receptor="capturarReceptor"
     />
@@ -51,13 +56,35 @@
         <div class="disposicion-annex-overview-header">
           <div>
             <h3>Anexos</h3>
-            <p aria-live="polite">{{ cantidadRespondidos }} de 7 respondidos</p>
+            <p aria-live="polite">{{ cantidadRespondidos }} de {{ anexos.length }} respondidos</p>
           </div>
-          <button ref="botonAbrirAnexos" type="button" class="disposicion-annex-open" :disabled="cargandoAnexos" @click="abrirPantallaAnexos">
+          <button
+            v-if="PANTALLA_LEGACY_ANEXOS_HABILITADA"
+            ref="botonAbrirAnexos"
+            type="button"
+            class="disposicion-annex-open"
+            :disabled="cargandoAnexos"
+            @click="abrirPantallaAnexos"
+          >
             {{ todosRespondidos ? "Editar anexos" : "Responder anexos" }}
           </button>
+          <button
+            v-else
+            type="button"
+            class="disposicion-annex-open"
+            :disabled="cargandoAnexos"
+            @click="abrirCapturaGuiadaEnAnexos"
+          >
+            Responder anexos en captura guiada
+          </button>
         </div>
-        <TransitionGroup name="annex-overview-chip" tag="div" class="disposicion-annex-chips" aria-label="Respuestas actuales">
+        <TransitionGroup
+          v-if="PANTALLA_LEGACY_ANEXOS_HABILITADA"
+          name="annex-overview-chip"
+          tag="div"
+          class="disposicion-annex-chips"
+          aria-label="Respuestas actuales"
+        >
           <button
             v-for="item in anexosRespondidos"
             :key="item.clave"
@@ -72,12 +99,14 @@
       </section>
 
       <AnexosPantalla
+        v-if="PANTALLA_LEGACY_ANEXOS_HABILITADA"
         :abierta="pantallaAnexosAbierta"
         :respuestas="respuestasAnexos"
         :sin-anexos="form.sin_anexos"
         :cambios-pendientes="respuestasAnexosModificadas"
         :elemento-disparador="botonAbrirAnexos"
         :indice-inicial="indiceInicialAnexo"
+        :confirmar-cambio-anexo="confirmarCambioAnexo"
         @cerrar="pantallaAnexosAbierta = false"
         @actualizar-respuestas="actualizarRespuestasAnexos"
         @ningun-anexo="marcarSinAnexos"
@@ -238,8 +267,10 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import api from "../../store/api";
 import { leerCaptura, guardarCaptura } from "../../store/capturas";
 import { eliminarAdjunto, guardarAdjunto, listarAdjuntos, obtenerAdjunto } from "../../store/attachments";
+import { anexos } from "./capturaGuiada/anexos.js";
 import AnexosPantalla from "./AnexosPantalla.vue";
 import CapturaGuiadaPuestaDisposicion from "./CapturaGuiadaPuestaDisposicion.vue";
 
@@ -249,6 +280,8 @@ const props = defineProps({
 });
 const emit = defineEmits(["guardado", "siguiente", "anexos-actualizados"]);
 const modoCaptura = ref("guiada");
+const iniciarEnAnexos = ref(false);
+const PANTALLA_LEGACY_ANEXOS_HABILITADA = false;
 
 function cambiarFormularioCompleto() {
   modoCaptura.value = "completa";
@@ -263,15 +296,14 @@ function capturarReceptor() {
   });
 }
 
-const anexos = [
-  { clave: "A", nombre: "Anexo A. Detención(es)", obligatorio: true },
-  { clave: "B", nombre: "Anexo B. Informe del uso de la fuerza", obligatorio: true },
-  { clave: "C", nombre: "Anexo C. Inspección de vehículo", obligatorio: true },
-  { clave: "D", nombre: "Anexo D. Inventario de armas y objetos", obligatorio: true },
-  { clave: "E", nombre: "Anexo E. Entrevistas", obligatorio: true },
-  { clave: "F", nombre: "Anexo F. Entrega-recepción del lugar de intervención", obligatorio: true },
-  { clave: "G", nombre: "Anexo G. Continuación de narrativa", obligatorio: true },
-];
+function abrirCapturaGuiadaEnAnexos() {
+  iniciarEnAnexos.value = true;
+  modoCaptura.value = "guiada";
+  nextTick(() => {
+    iniciarEnAnexos.value = false;
+  });
+}
+
 const tiposDocumentacion = ["Fotografías", "Videos", "Audio", "Certificados médicos", "Otra"];
 const respuestasVacias = () => Object.fromEntries(anexos.map(({ clave }) => [clave, null]));
 const respuestasAnexos = ref(respuestasVacias());
@@ -354,10 +386,54 @@ function actualizarRespuestasAnexos(respuestas) {
   notificarAnexos();
 }
 
+function actualizarAnexoGuiado({ clave, respuesta }) {
+  actualizarRespuestasAnexos({
+    ...respuestasAnexos.value,
+    [clave]: respuesta === "SI",
+  });
+}
+
 function marcarSinAnexos() {
   respuestasAnexos.value = Object.fromEntries(anexos.map(({ clave }) => [clave, false]));
   form.value.sin_anexos = true;
   notificarAnexos();
+}
+
+function contieneInformacion(valor) {
+  if (typeof valor === "string") return Boolean(valor.trim());
+  if (typeof valor === "number") return Number.isFinite(valor) && valor !== 0;
+  if (typeof valor === "boolean") return valor;
+  if (Array.isArray(valor)) return valor.some(contieneInformacion);
+  if (valor && typeof valor === "object") return Object.values(valor).some(contieneInformacion);
+  return false;
+}
+
+async function confirmarCambioAnexo(clave, respuesta) {
+  if (respuesta !== "NO" || respuestasAnexos.value[clave] !== true) return true;
+
+  const anexo = anexos.find((item) => item.clave === clave);
+  if (!anexo) throw new Error("No se encontró la configuración del anexo.");
+
+  if (anexo.captura) {
+    const claveLocal = anexo.claveLocal?.replace("{id}", props.iphId);
+    const captura = await leerCaptura(props.iphId, anexo.captura, claveLocal);
+    if (contieneInformacion(captura)) {
+      return window.confirm(`${anexo.nombre} ya tiene información guardada. ¿Deseas bloquearlo en el menú? Los datos no se eliminarán.`);
+    }
+  }
+
+  if (anexo.recursoApi) {
+    const { data } = await api.get(`/iph/${props.iphId}/${anexo.recursoApi}`);
+    if (contieneInformacion(data)) {
+      return window.confirm(`${anexo.nombre} ya tiene información guardada. ¿Deseas bloquearlo en el menú? Los datos no se eliminarán.`);
+    }
+  }
+
+  const adjuntos = await listarAdjuntos(props.iphId, clave, true);
+  if (adjuntos.length > 0) {
+    return window.confirm(`${anexo.nombre} ya tiene archivos guardados. ¿Deseas bloquearlo en el menú? Los archivos no se eliminarán.`);
+  }
+  return true;
 }
 
 function marcarRespuestasGuardadas() {
@@ -371,11 +447,13 @@ function indicePrimeraRespuestaPendiente() {
 }
 
 function abrirPantallaAnexos() {
+  if (!PANTALLA_LEGACY_ANEXOS_HABILITADA) return;
   indiceInicialAnexo.value = indicePrimeraRespuestaPendiente();
   pantallaAnexosAbierta.value = true;
 }
 
 function abrirAnexoDesdeChip(clave) {
+  if (!PANTALLA_LEGACY_ANEXOS_HABILITADA) return;
   form.value.sin_anexos = false;
   indiceInicialAnexo.value = anexos.findIndex((anexo) => anexo.clave === clave);
   notificarAnexos();
@@ -390,6 +468,7 @@ function editarAnexoDesdePantalla() {
 }
 
 function abrirAutomaticamenteUnaVez() {
+  if (!PANTALLA_LEGACY_ANEXOS_HABILITADA) return;
   const claveVisita = `iph:${props.iphId}:anexos-pantalla-abierta`;
   try {
     if (sessionStorage.getItem(claveVisita)) return;

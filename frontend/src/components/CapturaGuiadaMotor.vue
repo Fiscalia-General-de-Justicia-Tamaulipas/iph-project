@@ -8,11 +8,11 @@
       <div
         class="captura-guia-progreso"
         role="progressbar"
-        :aria-valuenow="progresoActual"
+        :aria-valuenow="valorProgreso"
         aria-valuemin="1"
-        :aria-valuemax="preguntasActivas.length"
+        :aria-valuemax="maximoProgreso"
       >
-        <span>Pregunta {{ progresoActual }} de {{ preguntasActivas.length }}</span>
+        <span>{{ textoProgreso }}</span>
         <div aria-hidden="true">
           <i :style="{ width: `${porcentajeProgreso}%` }"></i>
         </div>
@@ -32,6 +32,9 @@
 
         <article v-if="preguntaActual" :key="`actual-${preguntaActual.id}-${modoManual ? 'manual' : 'pregunta'}`" class="captura-guia-actual">
           <p class="captura-guia-burbuja sistema">{{ textoActual }}</p>
+          <p v-if="respuestaPrecargadaActual" class="captura-guia-burbuja usuario">
+            Respuesta actual: {{ respuestaPrecargadaActual }}
+          </p>
         </article>
       </TransitionGroup>
 
@@ -66,6 +69,12 @@
           </button>
         </template>
 
+        <template v-else-if="preguntaActual.tipo === 'continuar'">
+          <button type="button" class="captura-guia-principal" @click="responder('Continuar')">
+            Continuar
+          </button>
+        </template>
+
         <template v-else-if="esSugerencia && !modoManual">
           <button type="button" class="captura-guia-principal" @click="aceptarSugerencia">
             Sí
@@ -76,10 +85,10 @@
         </template>
 
         <template v-else-if="preguntaActual.tipo === 'si_no' && !modoManual">
-          <button type="button" class="captura-guia-principal" @click="responderSiNo('SI')">
+          <button type="button" class="captura-guia-principal" :disabled="respuestaProcesando" @click="responderSiNo('SI')">
             Sí
           </button>
-          <button type="button" class="captura-guia-secundario" @click="responderSiNo('NO')">
+          <button type="button" class="captura-guia-secundario" :disabled="respuestaProcesando" @click="responderSiNo('NO')">
             No
           </button>
         </template>
@@ -96,11 +105,21 @@
               autocomplete="off"
             />
           </label>
-          <p v-if="errorValidacion" class="captura-guia-error" role="alert">{{ errorValidacion }}</p>
           <button type="button" class="captura-guia-principal" @click="capturarTexto">
             Continuar
           </button>
         </template>
+
+        <button
+          v-if="preguntaActual.accionSecundaria"
+          type="button"
+          class="captura-guia-secundario"
+          :disabled="respuestaProcesando"
+          @click="ejecutarAccionSecundaria"
+        >
+          {{ preguntaActual.accionSecundaria.etiqueta }}
+        </button>
+        <p v-if="errorValidacion" class="captura-guia-error" role="alert">{{ errorValidacion }}</p>
       </div>
     </div>
 
@@ -118,27 +137,30 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 
 const props = defineProps({
   preguntas: { type: Array, required: true },
   datos: { type: Object, required: true },
   contexto: { type: Object, default: () => ({}) },
+  inicioPreguntaId: { type: String, default: "" },
   titulo: { type: String, default: "Puesta a disposición" },
   resumenItems: { type: Array, default: () => [] },
   guardando: { type: Boolean, default: false },
   errorGuardado: { type: String, default: "" },
 });
 
-const emit = defineEmits(["actualizar", "guardar", "revisar-formulario", "receptor"]);
+const emit = defineEmits(["actualizar", "guardar", "revisar-formulario", "receptor", "accion-secundaria"]);
 
 const indiceActual = ref(0);
 const modoManual = ref(false);
 const valorCaptura = ref("");
 const errorValidacion = ref("");
 const respuestas = ref({});
+const respuestasPrecargadas = ref(new Set());
 const mensajes = ref([]);
 const chat = ref(null);
+const respuestaProcesando = ref(false);
 
 const preguntasActivas = computed(() => props.preguntas.filter((pregunta) =>
   pregunta.id === "resumen" ||
@@ -148,17 +170,30 @@ const preguntasActivas = computed(() => props.preguntas.filter((pregunta) =>
 
 const preguntaActual = computed(() => preguntasActivas.value[indiceActual.value] || null);
 const progresoActual = computed(() => Math.min(indiceActual.value + 1, preguntasActivas.value.length));
+const progresoAnexo = computed(() => preguntaActual.value?.progreso || null);
+const valorProgreso = computed(() => progresoAnexo.value?.actual ?? progresoActual.value);
+const maximoProgreso = computed(() => progresoAnexo.value?.total ?? preguntasActivas.value.length);
+const textoProgreso = computed(() =>
+  progresoAnexo.value?.etiqueta || `Pregunta ${progresoActual.value} de ${preguntasActivas.value.length}`,
+);
 const porcentajeProgreso = computed(() => {
-  const total = preguntasActivas.value.length || 1;
-  return Math.round((progresoActual.value / total) * 100);
+  const total = maximoProgreso.value || 1;
+  return Math.round((valorProgreso.value / total) * 100);
 });
 
-const textoActual = computed(() => {
-  if (!preguntaActual.value) return "";
-  if (typeof preguntaActual.value.pregunta === "function") {
-    return preguntaActual.value.pregunta(props.datos, respuestas.value, props.contexto);
+function textoPregunta(pregunta) {
+  if (!pregunta) return "";
+  if (typeof pregunta.pregunta === "function") {
+    return pregunta.pregunta(props.datos, respuestas.value, props.contexto);
   }
-  return preguntaActual.value.pregunta;
+  return pregunta.pregunta;
+}
+
+const textoActual = computed(() => textoPregunta(preguntaActual.value));
+const respuestaPrecargadaActual = computed(() => {
+  const pregunta = preguntaActual.value;
+  if (!pregunta || !respuestasPrecargadas.value.has(pregunta.id)) return "";
+  return respuestas.value[pregunta.id] === "SI" ? "Sí" : "No";
 });
 
 const esSugerencia = computed(() => {
@@ -195,18 +230,49 @@ function desplazarAlFinal() {
   });
 }
 
+function obtenerRespuestaInicial(pregunta) {
+  return typeof pregunta.respuestaInicial === "function"
+    ? pregunta.respuestaInicial(props.datos, respuestas.value, props.contexto)
+    : pregunta.respuestaInicial;
+}
+
+function avanzarSobreRespuestasIniciales(indice) {
+  let siguienteIndice = Math.min(indice, preguntasActivas.value.length - 1);
+  while (siguienteIndice < preguntasActivas.value.length) {
+    const pregunta = preguntasActivas.value[siguienteIndice];
+    if (respuestasPrecargadas.value.has(pregunta.id)) {
+      siguienteIndice += 1;
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(respuestas.value, pregunta.id)) break;
+
+    const respuesta = obtenerRespuestaInicial(pregunta);
+    if (!["SI", "NO"].includes(respuesta)) break;
+
+    respuestas.value[pregunta.id] = respuesta;
+    respuestasPrecargadas.value.add(pregunta.id);
+    registrarMensaje(
+      respuesta === "SI" ? "Sí (respuesta actual)" : "No (respuesta actual)",
+      pregunta,
+    );
+    siguienteIndice += 1;
+  }
+  return Math.min(siguienteIndice, preguntasActivas.value.length - 1);
+}
+
 function avanzar() {
   modoManual.value = false;
   errorValidacion.value = "";
   valorCaptura.value = "";
-  indiceActual.value = Math.min(indiceActual.value + 1, preguntasActivas.value.length - 1);
+  indiceActual.value = avanzarSobreRespuestasIniciales(indiceActual.value + 1);
   desplazarAlFinal();
 }
 
-function registrarMensaje(respuesta) {
+function registrarMensaje(respuesta, pregunta = preguntaActual.value) {
+  if (!pregunta) return;
   mensajes.value.push({
-    id: `${preguntaActual.value.id}-${mensajes.value.length}`,
-    pregunta: textoActual.value,
+    id: `${pregunta.id}-${mensajes.value.length}`,
+    pregunta: textoPregunta(pregunta),
     respuesta,
   });
   desplazarAlFinal();
@@ -227,26 +293,71 @@ function aceptarSugerencia() {
   avanzar();
 }
 
-function responderSiNo(valor) {
+async function responderSiNo(valor) {
   const pregunta = preguntaActual.value;
-  respuestas.value[pregunta.id] = valor;
+  respuestaProcesando.value = true;
+  errorValidacion.value = "";
+  try {
+    if (
+      typeof pregunta.confirmarCambio === "function" &&
+      !(await pregunta.confirmarCambio(valor, props.datos, respuestas.value, props.contexto))
+    ) return;
 
-  if (pregunta.id === "numero_expediente") {
-    if (valor === "NO") establecerValor("no_expediente", "");
-  } else if (pregunta.id === "responsable_sesion") {
-    if (valor === "SI") {
-      establecerValor("responsable.primer_apellido", props.contexto.primerApellido || "");
-      establecerValor("responsable.segundo_apellido", props.contexto.segundoApellido || "");
-      establecerValor("responsable.nombres", props.contexto.nombres || "");
-      establecerValor("responsable.adscripcion", props.contexto.adscripcion || "");
-      establecerValor("responsable.cargo", props.contexto.cargo || "");
+    respuestasPrecargadas.value.delete(pregunta.id);
+    respuestas.value[pregunta.id] = valor;
+
+    if (pregunta.id === "numero_expediente") {
+      if (valor === "NO") establecerValor("no_expediente", "");
+    } else if (pregunta.id === "responsable_sesion") {
+      if (valor === "SI") {
+        establecerValor("responsable.primer_apellido", props.contexto.primerApellido || "");
+        establecerValor("responsable.segundo_apellido", props.contexto.segundoApellido || "");
+        establecerValor("responsable.nombres", props.contexto.nombres || "");
+        establecerValor("responsable.adscripcion", props.contexto.adscripcion || "");
+        establecerValor("responsable.cargo", props.contexto.cargo || "");
+      }
+    } else if (pregunta.campoFormulario) {
+      establecerValor(pregunta.campoFormulario, valor);
     }
-  } else if (pregunta.campoFormulario) {
-    establecerValor(pregunta.campoFormulario, valor);
-  }
 
-  registrarMensaje(valor === "SI" ? "Sí" : "No");
-  avanzar();
+    registrarMensaje(valor === "SI" ? "Sí" : "No");
+    avanzar();
+  } catch (error) {
+    console.error("No se pudo verificar el cambio de respuesta:", error);
+    errorValidacion.value = error.response?.data?.msg || error.message || "No se pudo verificar la información guardada. Inténtalo de nuevo.";
+  } finally {
+    respuestaProcesando.value = false;
+  }
+}
+
+async function ejecutarAccionSecundaria() {
+  const accion = preguntaActual.value?.accionSecundaria;
+  if (!accion || respuestaProcesando.value) return;
+
+  respuestaProcesando.value = true;
+  errorValidacion.value = "";
+  try {
+    if (
+      typeof accion.confirmar === "function" &&
+      !(await accion.confirmar(props.datos, respuestas.value, props.contexto))
+    ) return;
+
+    emit("accion-secundaria", accion);
+    registrarMensaje(accion.respuesta || accion.etiqueta);
+    const indiceDestino = preguntasActivas.value.findIndex((pregunta) => pregunta.id === accion.destino);
+    if (indiceDestino >= 0) {
+      modoManual.value = false;
+      indiceActual.value = indiceDestino;
+      desplazarAlFinal();
+      return;
+    }
+    avanzar();
+  } catch (error) {
+    console.error("No se pudo confirmar la acción de anexos:", error);
+    errorValidacion.value = error.response?.data?.msg || error.message || "No se pudo verificar la información guardada. Inténtalo de nuevo.";
+  } finally {
+    respuestaProcesando.value = false;
+  }
 }
 
 function capturarTexto() {
@@ -272,7 +383,10 @@ function atras() {
   if (indiceActual.value <= 0) return;
 
   const anteriorId = preguntasActivas.value[indiceActual.value - 1]?.id;
-  if (anteriorId) delete respuestas.value[anteriorId];
+  if (anteriorId) {
+    delete respuestas.value[anteriorId];
+    respuestasPrecargadas.value.delete(anteriorId);
+  }
   modoManual.value = false;
   nextTick(() => {
     const nuevoIndice = preguntasActivas.value.findIndex((pregunta) => pregunta.id === anteriorId);
@@ -293,6 +407,20 @@ watch(preguntaActual, (actual) => {
 });
 
 watch(() => props.datos, desplazarAlFinal, { deep: true });
+
+onMounted(() => {
+  if (!props.inicioPreguntaId) return;
+  const indiceInicial = preguntasActivas.value.findIndex((pregunta) => pregunta.id === props.inicioPreguntaId);
+  if (indiceInicial < 0) return;
+  const preguntaInicial = preguntasActivas.value[indiceInicial];
+  const respuestaInicial = obtenerRespuestaInicial(preguntaInicial);
+  indiceActual.value = indiceInicial;
+  if (["SI", "NO"].includes(respuestaInicial)) {
+    respuestas.value[preguntaInicial.id] = respuestaInicial;
+    respuestasPrecargadas.value.add(preguntaInicial.id);
+  }
+  desplazarAlFinal();
+});
 </script>
 
 <style scoped>

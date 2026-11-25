@@ -13,13 +13,16 @@ function abrirBase() {
   });
 }
 
-async function listarLocales(iphId, anexo) {
+async function listarLocales(iphId, anexo, incluirPrefijo) {
   const db = await abrirBase();
   return new Promise((resolve, reject) => {
     const request = db.transaction(STORE_NAME).objectStore(STORE_NAME).getAll();
     request.onsuccess = () => {
       db.close();
-      resolve(request.result.filter((file) => file.iphId === String(iphId) && file.anexo === anexo));
+      resolve(request.result.filter((file) =>
+        file.iphId === String(iphId) &&
+        (!anexo || file.anexo === anexo || (incluirPrefijo && file.anexo?.startsWith(`${anexo}-`))),
+      ));
     };
     request.onerror = () => { db.close(); reject(request.error || new Error("No se pudieron leer los archivos locales.")); };
   });
@@ -44,15 +47,23 @@ export async function guardarAdjunto({ id, iphId, anexo, file }) {
   return data;
 }
 
-export async function listarAdjuntos(iphId, anexo) {
+export async function listarAdjuntos(iphId, anexo, incluirPrefijo = false) {
   // Migra al servidor archivos de IndexedDB creados antes de habilitar persistencia remota.
-  const antiguos = await listarLocales(iphId, anexo);
+  const antiguos = await listarLocales(iphId, anexo, incluirPrefijo);
   for (const archivo of antiguos) {
-    await guardarAdjunto({ id: archivo.id, iphId, anexo, file: new File([archivo.blob], archivo.name, { type: archivo.type }) });
+    await guardarAdjunto({
+      id: archivo.id,
+      iphId,
+      anexo: archivo.anexo,
+      file: new File([archivo.blob], archivo.name, { type: archivo.type }),
+    });
     await borrarLocal(archivo.id);
   }
-  const { data } = await api.get(`/iph/${iphId}/adjuntos`, { params: { anexo } });
-  return data;
+  const params = anexo && !incluirPrefijo ? { anexo } : {};
+  const { data } = await api.get(`/iph/${iphId}/adjuntos`, { params });
+  return incluirPrefijo
+    ? data.filter((archivo) => archivo.anexo === anexo || archivo.anexo?.startsWith(`${anexo}-`))
+    : data;
 }
 
 export async function obtenerAdjunto(id, iphId) {
