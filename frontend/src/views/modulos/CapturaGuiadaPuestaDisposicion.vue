@@ -1,14 +1,16 @@
 <template>
   <CapturaGuiadaMotor
     :preguntas="preguntas"
-    :datos="form"
+    :datos="datos"
     :contexto="contexto"
+    :inicio-pregunta-id="iniciarEnAnexos ? 'anexo_a' : ''"
     titulo="Puesta a disposición"
     :resumen-items="resumenItems"
     :guardando="guardando"
     :error-guardado="errorGuardado || errorGuardadoExterno"
     @actualizar="actualizarCampo"
     @guardar="guardar"
+    @accion-secundaria="manejarAccionSecundaria"
     @revisar-formulario="revisarFormularioCompleto"
     @receptor="irAReceptor"
   />
@@ -18,25 +20,85 @@
 import { computed, ref } from "vue";
 import CapturaGuiadaMotor from "../../components/CapturaGuiadaMotor.vue";
 import { useAuthStore } from "../../store/auth";
-import preguntas, {
+import preguntasSeccion, {
   fechaHoyLocal,
   horaActualLocal,
   formatFecha,
 } from "./capturaGuiada/PuestaDisposicionPreguntas";
+import { anexos } from "./capturaGuiada/anexos.js";
 
 const props = defineProps({
   iphId: { type: [String, Number], required: true },
   iph: { type: Object, default: null },
   form: { type: Object, required: true },
+  iniciarEnAnexos: { type: Boolean, default: false },
+  respuestasAnexos: { type: Object, required: true },
+  confirmarCambioAnexo: { type: Function, required: true },
   errorGuardadoExterno: { type: String, default: "" },
 });
 
-const emit = defineEmits(["guardar", "revisar-formulario", "receptor"]);
+const emit = defineEmits([
+  "guardar",
+  "actualizar-anexo",
+  "ningun-anexo",
+  "revisar-formulario",
+  "receptor",
+]);
 
 const auth = useAuthStore();
 const guardando = ref(false);
 const errorGuardado = ref("");
 const form = props.form;
+
+const preguntas = [
+  ...preguntasSeccion.slice(0, -1),
+  {
+    id: "inicio_anexos",
+    pregunta: "Ahora vamos con los anexos.",
+    tipo: "continuar",
+  },
+  ...anexos.map((anexo, index) => ({
+    id: `anexo_${anexo.clave.toLowerCase()}`,
+    pregunta: `${anexo.nombre}: ¿se entrega este anexo?`,
+    tipo: "si_no",
+    campoFormulario: `anexos.${anexo.clave}.entregado`,
+    respuestaInicial: (datos) => datos.anexos?.[anexo.clave]?.entregado,
+    progreso: {
+      actual: index + 1,
+      total: anexos.length,
+      etiqueta: `Anexo ${index + 1} de ${anexos.length}`,
+    },
+    confirmarCambio: (valor, datos, respuestas, contexto) =>
+      contexto.confirmarCambioAnexo(anexo.clave, valor),
+    accionSecundaria: {
+      etiqueta: "Ningún anexo",
+      respuesta: "Ningún anexo",
+      destino: "resumen",
+      evento: "ningun-anexo",
+      confirmar: async (datos, respuestas, contexto) => {
+        for (const { clave } of anexos) {
+          if (!(await contexto.confirmarCambioAnexo(clave, "NO"))) return false;
+        }
+        return true;
+      },
+    },
+  })),
+  preguntasSeccion[preguntasSeccion.length - 1],
+];
+
+const datos = computed(() => ({
+  ...form,
+  anexos: Object.fromEntries(anexos.map(({ clave }) => [
+    clave,
+    {
+      entregado: props.respuestasAnexos[clave] === true
+        ? "SI"
+        : props.respuestasAnexos[clave] === false
+          ? "NO"
+          : "",
+    },
+  ])),
+}));
 
 function primerNombreCompleto(nombreCompleto) {
   return String(nombreCompleto || "").trim().split(/\s+/)[0] || "";
@@ -75,6 +137,7 @@ const contexto = computed(() => ({
   folio: props.iph?.folio_interno || props.iph?.IPH || props.iph?.folio || props.iphId,
   fechaHoy: fechaHoyLocal(),
   horaActual: horaActualLocal(),
+  confirmarCambioAnexo: props.confirmarCambioAnexo,
   nombres: nombresSesion.value,
   primerApellido: primerApellidoSesion.value,
   segundoApellido: segundoApellidoSesion.value,
@@ -82,17 +145,22 @@ const contexto = computed(() => ({
   cargo: cargoSesion.value,
 }));
 
-const resumenItems = computed(() => [
-  { etiqueta: "Fecha", valor: formatFecha(form.fecha) || "Sin capturar" },
-  { etiqueta: "Hora", valor: form.hora || "Sin capturar" },
-  { etiqueta: "Número de expediente", valor: form.no_expediente || "No aplica" },
-  { etiqueta: "Primer apellido", valor: form.responsable.primer_apellido || "Sin capturar" },
-  { etiqueta: "Segundo apellido", valor: form.responsable.segundo_apellido || "No aplica" },
-  { etiqueta: "Nombre(s)", valor: form.responsable.nombres || "Sin capturar" },
-  { etiqueta: "Adscripción", valor: form.responsable.adscripcion || "Sin capturar" },
-  { etiqueta: "Cargo/Grado", valor: form.responsable.cargo || "Sin capturar" },
-  { etiqueta: "Firma", valor: form.responsable.firma === "SI" ? "Sí" : form.responsable.firma === "NO" ? "No" : "Sin capturar" },
-]);
+const resumenItems = computed(() => {
+  const entregados = anexos.filter(({ clave }) => props.respuestasAnexos[clave] === true);
+  return [
+    { etiqueta: "Fecha", valor: formatFecha(form.fecha) || "Sin capturar" },
+    { etiqueta: "Hora", valor: form.hora || "Sin capturar" },
+    { etiqueta: "Número de expediente", valor: form.no_expediente || "No aplica" },
+    { etiqueta: "Primer apellido", valor: form.responsable.primer_apellido || "Sin capturar" },
+    { etiqueta: "Segundo apellido", valor: form.responsable.segundo_apellido || "No aplica" },
+    { etiqueta: "Nombre(s)", valor: form.responsable.nombres || "Sin capturar" },
+    { etiqueta: "Adscripción", valor: form.responsable.adscripcion || "Sin capturar" },
+    { etiqueta: "Cargo/Grado", valor: form.responsable.cargo || "Sin capturar" },
+    { etiqueta: "Firma", valor: form.responsable.firma === "SI" ? "Sí" : form.responsable.firma === "NO" ? "No" : "Sin capturar" },
+    { etiqueta: "Anexos entregados", valor: `${entregados.length} de ${anexos.length}` },
+    { etiqueta: "Cuáles", valor: entregados.map(({ nombre }) => nombre).join(", ") || "Ninguno" },
+  ];
+});
 
 function establecerRuta(ruta, valor) {
   const partes = ruta.split(".");
@@ -109,7 +177,16 @@ function establecerRuta(ruta, valor) {
 }
 
 function actualizarCampo({ ruta, valor }) {
+  const coincideAnexo = ruta.match(/^anexos\.([A-G])\.entregado$/);
+  if (coincideAnexo) {
+    emit("actualizar-anexo", { clave: coincideAnexo[1], respuesta: valor });
+    return;
+  }
   establecerRuta(ruta, valor);
+}
+
+function manejarAccionSecundaria(accion) {
+  if (accion.evento === "ningun-anexo") emit("ningun-anexo");
 }
 
 function validarObligatorios() {

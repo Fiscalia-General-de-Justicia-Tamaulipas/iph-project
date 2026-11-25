@@ -104,7 +104,7 @@
                   type="button"
                   class="annex-screen-choice is-yes"
                   :class="{ 'is-selected': respuestaAnimada === 'SI' }"
-                  :disabled="procesando"
+                  :disabled="procesando || confirmandoCambio"
                   :style="estiloOndaBoton('SI')"
                   @click="responder('SI', $event)"
                 >
@@ -116,7 +116,7 @@
                   type="button"
                   class="annex-screen-choice is-no"
                   :class="{ 'is-selected': respuestaAnimada === 'NO' }"
-                  :disabled="procesando"
+                  :disabled="procesando || confirmandoCambio"
                   :style="estiloOndaBoton('NO')"
                   @click="responder('NO', $event)"
                 >
@@ -125,9 +125,10 @@
                 </button>
               </div>
 
-              <button type="button" class="annex-screen-none" :disabled="procesando" @click="ningunAnexo($event)">
+              <button type="button" class="annex-screen-none" :disabled="procesando || confirmandoCambio" @click="ningunAnexo($event)">
                 Ningún anexo
               </button>
+              <p v-if="errorConfirmacion" class="annex-screen-error" role="alert">{{ errorConfirmacion }}</p>
             </main>
 
             <main
@@ -185,16 +186,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-
-const anexos = [
-  { clave: "A", nombre: "Anexo A. Detención(es)" },
-  { clave: "B", nombre: "Anexo B. Informe del uso de la fuerza" },
-  { clave: "C", nombre: "Anexo C. Inspección de vehículo" },
-  { clave: "D", nombre: "Anexo D. Inventario de armas y objetos" },
-  { clave: "E", nombre: "Anexo E. Entrevistas" },
-  { clave: "F", nombre: "Anexo F. Entrega-recepción del lugar de intervención" },
-  { clave: "G", nombre: "Anexo G. Continuación de narrativa" },
-];
+import { anexos } from "./capturaGuiada/anexos.js";
 
 const props = defineProps({
   abierta: { type: Boolean, default: false },
@@ -203,6 +195,7 @@ const props = defineProps({
   cambiosPendientes: { type: Boolean, default: false },
   elementoDisparador: { type: Object, default: null },
   indiceInicial: { type: Number, default: 0 },
+  confirmarCambioAnexo: { type: Function, required: true },
 });
 
 const emit = defineEmits(["cerrar", "actualizar-respuestas", "ningun-anexo", "editar-anexo"]);
@@ -210,6 +203,8 @@ const pantalla = ref(null);
 const indiceActual = ref(0);
 const direccion = ref("forward");
 const procesando = ref(false);
+const confirmandoCambio = ref(false);
+const errorConfirmacion = ref("");
 const respuestaAnimada = ref("");
 const confirmacionVisible = ref(false);
 const ondaVisible = ref(false);
@@ -399,9 +394,29 @@ async function transicionarA(indice, sentido, event, respuesta, antesDelCambio =
   procesando.value = false;
 }
 
-function responder(respuesta, event) {
-  if (procesando.value || !anexoActual.value) return;
+async function confirmarCambiosANo(claves) {
+  errorConfirmacion.value = "";
+  confirmandoCambio.value = true;
+  try {
+    for (const clave of claves) {
+      if (props.respuestas[clave] !== true) continue;
+      if (!(await props.confirmarCambioAnexo(clave, "NO"))) return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("No se pudo verificar el anexo antes de bloquearlo:", error);
+    errorConfirmacion.value = error.response?.data?.msg || error.message || "No se pudo verificar la información guardada. Inténtalo de nuevo.";
+    return false;
+  } finally {
+    confirmandoCambio.value = false;
+  }
+}
+
+async function responder(respuesta, event) {
+  if (procesando.value || confirmandoCambio.value || !anexoActual.value) return;
+  errorConfirmacion.value = "";
   const actual = anexoActual.value;
+  if (respuesta === "NO" && !(await confirmarCambiosANo([actual.clave]))) return;
   const respuestas = { ...props.respuestas, [actual.clave]: respuesta === "SI" };
   emit("actualizar-respuestas", respuestas);
 
@@ -427,8 +442,9 @@ function editarAnexo(clave) {
   indiceActual.value = destino;
 }
 
-function ningunAnexo(event) {
-  if (procesando.value) return;
+async function ningunAnexo(event) {
+  if (procesando.value || confirmandoCambio.value) return;
+  if (!(await confirmarCambiosANo(anexos.map(({ clave }) => clave)))) return;
   emit("actualizar-respuestas", Object.fromEntries(anexos.map(({ clave }) => [clave, false])));
   transicionarA(anexos.length, "forward", event, "", () => emit("ningun-anexo"));
 }
@@ -631,6 +647,13 @@ onBeforeUnmount(() => {
   line-height: 1.2;
   text-align: center;
   text-transform: uppercase;
+}
+
+.annex-screen-error {
+  margin: 0.75rem 0 0;
+  color: #b42318;
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
 .annex-screen-close {
