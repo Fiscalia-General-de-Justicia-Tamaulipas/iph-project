@@ -200,7 +200,7 @@ MODULOS_UNO_A_MUCHOS = {
 }
 
 PANTALLAS_CAPTURA = {
-    "puesta_disposicion", "anexo_a", "anexo_b", "anexo_c_complemento",
+    "puesta_disposicion", "policias", "anexo_a", "anexo_b", "anexo_c_complemento",
     "anexo_d", "anexo_e", "anexo_f", "bitacora", "seccion_5_complemento",
 }
 PANTALLAS_PREVISUALIZABLES = PANTALLAS_CAPTURA | {
