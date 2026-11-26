@@ -1,5 +1,43 @@
 <template>
-  <form ref="formulario" class="disposicion-form primer-respondiente-form" @submit.prevent="agregar">
+  <div class="primer-respondiente-modo" role="group" aria-label="Modo de captura">
+    <button
+      type="button"
+      :aria-pressed="!capturaGuiada"
+      :class="{ activa: !capturaGuiada }"
+      @click="capturaGuiada = false"
+    >
+      Formulario completo
+    </button>
+    <button
+      type="button"
+      :aria-pressed="capturaGuiada"
+      :class="{ activa: capturaGuiada }"
+      @click="capturaGuiada = true"
+    >
+      Captura guiada
+    </button>
+  </div>
+
+  <div v-if="capturaGuiada" class="primer-respondiente-captura-guiada">
+    <p v-if="mensaje" class="primer-respondiente-message" role="status">{{ mensaje }}</p>
+    <CapturaGuiadaMotor
+      :preguntas="preguntasGuiadas"
+      :datos="form"
+      :contexto="contextoGuiado"
+      titulo="Sección 2: Primer respondiente"
+      :resumen-items="resumenItems"
+      :resumen-aviso="avisoResumen"
+      :resumen-aviso-accion="avisoResumenAccion"
+      :guardando="guardando"
+      :error-guardado="error"
+      @actualizar="actualizarCampo"
+      @guardar="guardarCapturaGuiada"
+      @revisar-formulario="capturaGuiada = false"
+      @receptor="revisarAvisoResumen"
+    />
+  </div>
+
+  <form v-else ref="formulario" class="disposicion-form primer-respondiente-form" @submit.prevent="guardarFormularioCompleto">
     <section class="disposicion-block" aria-labelledby="primer-respondiente-identificacion">
       <h2 id="primer-respondiente-identificacion">Apartado 2.1 Datos de identificación</h2>
 
@@ -28,7 +66,7 @@
 
         <div>
           <label for="institucion">Institución *</label>
-          <select id="institucion" v-model="form.institucion" required>
+          <select id="institucion" v-model="form.institucion" required @change="cambiarInstitucion">
             <option value="">-- SELECCIONE --</option>
             <option v-for="institucion in instituciones" :key="institucion.value" :value="institucion.value">
               {{ institucion.label }}
@@ -116,11 +154,27 @@
           {{ policia.nombres || policia.nombre }}
           <small>{{ policia.grado_cargo || "Sin cargo" }} · {{ etiquetaInstitucion(policia.institucion) }}</small>
         </span>
+        <button
+          v-if="policia.es_primer_respondiente"
+          type="button"
+          class="primer-respondiente-edit"
+          @click="seleccionarRegistro(policia)"
+        >
+          {{ String(form.registro_relacional_id) === String(policia.id) ? "En edición" : "Usar este registro" }}
+        </button>
         <button type="button" class="primer-respondiente-remove" @click="eliminar(policia.id)">Eliminar</button>
       </div>
     </div>
 
     <div class="disposicion-actions primer-respondiente-actions">
+      <button
+        v-if="lista.length"
+        type="button"
+        class="primer-respondiente-edit"
+        @click="prepararNuevoRegistro"
+      >
+        Agregar otro elemento
+      </button>
       <button type="submit" class="disposicion-save-button" :disabled="guardando">
         {{ guardando ? "GUARDANDO..." : "GUARDAR SECCIÓN" }}
       </button>
@@ -138,72 +192,118 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import api from "../../store/api";
-import { leerCaptura } from "../../store/capturas";
+import { guardarCaptura, leerCaptura } from "../../store/capturas";
+import { useAuthStore } from "../../store/auth";
+import CapturaGuiadaMotor from "../../components/CapturaGuiadaMotor.vue";
+import preguntasGuiadas from "./capturaGuiada/PoliciasPreguntas";
+import {
+  entidades,
+  instituciones,
+  municipiosTamaulipas,
+} from "./capturaGuiada/PoliciasCatalogos";
+import {
+  cargarPolicias,
+  combinarRegistroConCaptura,
+  crearFormularioPolicias,
+  datosParaCapturaPolicias,
+  entidadDesdeAdscripcion,
+  formularioDesdeRegistro,
+  guardarPolicias,
+  municipioDesdeAdscripcion,
+  opcionesRegistrosPolicias,
+  validarFormularioPolicias,
+} from "./capturaGuiada/PoliciasPersistencia";
 
 const props = defineProps({ iphId: { type: [String, Number], required: true } });
 const emit = defineEmits(["guardado", "cancelar", "siguiente"]);
-
-const instituciones = [
-  { value: "guardia_nacional", label: "GN-GUARDIA NACIONAL" },
-  { value: "policia_federal_ministerial", label: "FM-POLICÍA FEDERAL MINISTERIAL" },
-  { value: "policia_ministerial", label: "ME-POLICÍA MINISTERIAL" },
-  { value: "policia_mando_unico", label: "MU-POLICÍA MANDO ÚNICO" },
-  { value: "policia_estatal", label: "PE-POLICÍA ESTATAL" },
-  { value: "policia_municipal", label: "PM-POLICÍA MUNICIPAL" },
-  { value: "otra", label: "OA-OTRA AUTORIDAD" },
-];
-
-const entidades = [
-  "AGUASCALIENTES", "BAJA CALIFORNIA", "BAJA CALIFORNIA SUR", "CAMPECHE", "CHIAPAS",
-  "CHIHUAHUA", "CIUDAD DE MÉXICO", "COAHUILA", "COLIMA", "DURANGO", "GUANAJUATO",
-  "GUERRERO", "HIDALGO", "JALISCO", "MÉXICO", "MICHOACÁN", "MORELOS", "NAYARIT",
-  "NUEVO LEÓN", "OAXACA", "PUEBLA", "QUERÉTARO", "QUINTANA ROO", "SAN LUIS POTOSÍ",
-  "SINALOA", "SONORA", "TABASCO", "TAMAULIPAS", "TLAXCALA", "VERACRUZ", "YUCATÁN",
-  "ZACATECAS",
-];
-
-const municipiosTamaulipas = [
-  "ABASOLO", "ALDAMA", "ALTAMIRA", "ANTIGUO MORELOS", "BURGOS", "BUSTAMANTE",
-  "CAMARGO", "CASAS", "CIUDAD MADERO", "CRUILLAS", "GÓMEZ FARÍAS", "GONZÁLEZ",
-  "GÜÉMEZ", "GUERRERO", "GUSTAVO DÍAZ ORDAZ", "HIDALGO", "JAUMAVE", "JIMÉNEZ",
-  "LLERA", "MAINERO", "EL MANTE", "MATAMOROS", "MÉNDEZ", "MIER", "MIGUEL ALEMÁN",
-  "MIQUIHUANA", "NUEVO LAREDO", "NUEVO MORELOS", "OCAMPO", "PADILLA", "PALMILLAS",
-  "REYNOSA", "RÍO BRAVO", "SAN CARLOS", "SAN FERNANDO", "SAN NICOLÁS",
-  "SOTO LA MARINA", "TAMPICO", "TULA", "VALLE HERMOSO", "VICTORIA", "VILLAGRÁN",
-  "XICOTÉNCATL",
-];
-
-function crearFormulario() {
-  return {
-    nombres: "",
-    primer_apellido: "",
-    segundo_apellido: "",
-    grado_cargo: "",
-    institucion: "",
-    institucion_otra: "",
-    unidad_arribo: "",
-    entidad_federativa: "",
-    municipio_adscripcion: "",
-    no_aplica: false,
-    arribo_multiple: "",
-    cantidad_elementos: null,
-  };
-}
-
+const auth = useAuthStore();
 const lista = ref([]);
 const guardando = ref(false);
 const formulario = ref(null);
 const seleccionarSeccion1 = ref(false);
 const mensaje = ref("");
 const error = ref("");
-const form = ref(crearFormulario());
+const form = ref(crearFormularioPolicias());
+const capturaGuiada = ref(false);
+const listaCargada = ref(false);
+const capturaOriginal = ref(null);
+const registrosAmbiguos = ref([]);
+const datosLegacyIncompletos = ref(false);
+const crearNuevoRegistro = ref(false);
+
+const resumenItems = computed(() => [
+  { etiqueta: "Primer apellido", valor: form.value.primer_apellido || "Sin capturar" },
+  { etiqueta: "Segundo apellido", valor: form.value.segundo_apellido || "No aplica" },
+  { etiqueta: "Nombre(s)", valor: form.value.nombres || "Sin capturar" },
+  { etiqueta: "Institución", valor: etiquetaInstitucion(form.value.institucion) },
+  { etiqueta: "Entidad federativa", valor: form.value.entidad_federativa || "Sin capturar" },
+  { etiqueta: "Municipio de adscripción", valor: form.value.municipio_adscripcion || "No aplica" },
+  {
+    etiqueta: "Otra autoridad",
+    valor: form.value.institucion === "otra" ? form.value.institucion_otra || "Sin capturar" : "No aplica",
+  },
+  { etiqueta: "Cargo o grado", valor: form.value.grado_cargo || "Sin capturar" },
+  { etiqueta: "Unidad de arribo", valor: form.value.no_aplica ? "No aplica" : form.value.unidad_arribo || "Sin capturar" },
+  { etiqueta: "Más de un elemento", valor: form.value.arribo_multiple === "SI" ? "Sí" : form.value.arribo_multiple === "NO" ? "No" : "Sin capturar" },
+  {
+    etiqueta: "Cantidad de elementos",
+    valor: form.value.arribo_multiple === "SI"
+      ? form.value.cantidad_elementos || "Pendiente en formulario completo"
+      : "No aplica",
+  },
+]);
+
+const adscripcionSesion = computed(() =>
+  String(auth.usuario?.UNDD_DSCRPCION || auth.usuario?.adscripcion || "").trim(),
+);
+const entidadSesion = computed(() => entidadDesdeAdscripcion(adscripcionSesion.value));
+const municipioSesion = computed(() =>
+  municipioDesdeAdscripcion(adscripcionSesion.value, entidadSesion.value),
+);
+const cargoSesion = computed(() =>
+  String(auth.usuario?.PUESTO || auth.usuario?.puesto || auth.usuario?.cargo || "").trim(),
+);
+const contextoGuiado = computed(() => ({
+  leerResponsableSeccion1,
+  registrosAmbiguos: opcionesRegistrosPolicias(registrosAmbiguos.value),
+  entidadSesion: entidadSesion.value,
+  municipioSesion: municipioSesion.value,
+  cargoSesion: cargoSesion.value,
+}));
+const avisoResumen = computed(() => {
+  const avisos = [];
+  if (datosLegacyIncompletos.value) {
+    avisos.push("Este IPH no tenía guardados entidad, municipio ni datos de arribo; verifica y guarda esas respuestas.");
+  }
+  if (
+    form.value.arribo_multiple === "SI"
+    && (!Number.isInteger(Number(form.value.cantidad_elementos))
+      || Number(form.value.cantidad_elementos) < 2
+      || Number(form.value.cantidad_elementos) > 999)
+  ) {
+    avisos.push("Falta indicar cuántos elementos arribaron (de 2 a 999) en el formulario completo.");
+  }
+  return avisos.join(" ");
+});
+const avisoResumenAccion = computed(() =>
+  form.value.arribo_multiple === "SI"
+  && (!Number.isInteger(Number(form.value.cantidad_elementos))
+    || Number(form.value.cantidad_elementos) < 2
+    || Number(form.value.cantidad_elementos) > 999)
+    ? "Completar en formulario completo"
+    : "",
+);
 
 function cambiarEntidad() {
   if (form.value.entidad_federativa !== "TAMAULIPAS") {
     form.value.municipio_adscripcion = "";
   }
+}
+
+function cambiarInstitucion() {
+  if (form.value.institucion !== "otra") form.value.institucion_otra = "";
 }
 
 function etiquetaInstitucion(valor) {
@@ -214,20 +314,25 @@ function actualizarNoAplica() {
   if (form.value.no_aplica) form.value.unidad_arribo = "";
 }
 
+async function leerResponsableSeccion1() {
+  const borrador = await leerCaptura(
+    props.iphId,
+    "puesta_disposicion",
+    `iph-pruebas:${props.iphId}:puesta_disposicion`,
+  );
+  const responsable = borrador?.responsable;
+  if (!responsable) {
+    throw new Error("No hay datos guardados de quien realiza la puesta a disposición en la Sección 1.");
+  }
+  return responsable;
+}
+
 async function copiarResponsableSeccion1() {
   mensaje.value = "";
   error.value = "";
   if (!seleccionarSeccion1.value) return;
-
   try {
-    const borrador = await leerCaptura(props.iphId, "puesta_disposicion", `iph-pruebas:${props.iphId}:puesta_disposicion`);
-    const responsable = borrador?.responsable;
-    if (!responsable) {
-      seleccionarSeccion1.value = false;
-      error.value = "No hay datos guardados de quien realiza la puesta a disposición en la Sección 1.";
-      return;
-    }
-
+    const responsable = await leerResponsableSeccion1();
     form.value.primer_apellido = responsable.primer_apellido || "";
     form.value.segundo_apellido = responsable.segundo_apellido || "";
     form.value.nombres = responsable.nombres || "";
@@ -235,58 +340,123 @@ async function copiarResponsableSeccion1() {
     mensaje.value = "Se copiaron los datos disponibles de la Sección 1. Verifica la información restante.";
   } catch (exception) {
     seleccionarSeccion1.value = false;
-    error.value = exception.response?.data?.msg || `No se pudieron leer los datos de la Sección 1: ${exception.message}`;
+    error.value = exception.response?.data?.msg || exception.message
+      || "No se pudieron leer los datos de la Sección 1.";
   }
 }
 
-async function cargar() {
-  const { data } = await api.get(`/iph/${props.iphId}/policias/lista`);
-  lista.value = Array.isArray(data) ? data : [];
+function seleccionarRegistro(registro) {
+  if (String(form.value.registro_relacional_id) === String(registro.id)) return;
+  form.value = capturaOriginal.value
+    ? combinarRegistroConCaptura(registro, capturaOriginal.value, { priorizarRegistro: true })
+    : formularioDesdeRegistro(registro);
+  form.value.registro_relacional_id = String(registro.id);
+  crearNuevoRegistro.value = false;
+  error.value = "";
 }
 
-async function agregar() {
+function prepararNuevoRegistro() {
+  form.value = crearFormularioPolicias();
+  capturaOriginal.value = null;
+  crearNuevoRegistro.value = true;
+  seleccionarSeccion1.value = false;
+  mensaje.value = "";
+  error.value = "";
+}
+
+function actualizarCampo({ ruta, valor }) {
+  if (ruta === "registro_relacional_id") {
+    if (String(form.value.registro_relacional_id) === String(valor)) return;
+    const registro = lista.value.find((item) => String(item.id) === String(valor));
+    if (registro) seleccionarRegistro(registro);
+    return;
+  }
+  form.value[ruta] = valor;
+  if (ruta === "unidad_arribo") form.value.no_aplica = valor === "NO APLICA";
+  if (ruta === "institucion" && valor !== "otra") form.value.institucion_otra = "";
+  if (ruta === "entidad_federativa") cambiarEntidad();
+}
+
+async function guardarCapturaGuiada() {
+  await guardarSeccion({ capturaGuiada: true });
+}
+
+async function cargar() {
+  error.value = "";
+  try {
+    const resultado = await cargarPolicias(props.iphId);
+    form.value = resultado.formulario;
+    capturaOriginal.value = resultado.capturaOriginal;
+    lista.value = resultado.registros;
+    registrosAmbiguos.value = resultado.registrosAmbiguos;
+    listaCargada.value = resultado.listaCargada;
+    datosLegacyIncompletos.value = resultado.datosLegacyIncompletos;
+    if (resultado.errorCarga) error.value = resultado.errorCarga;
+  } catch (exception) {
+    listaCargada.value = false;
+    error.value = exception.response?.data?.msg
+      || `No se pudo cargar la Sección 2: ${exception.message}`;
+  }
+}
+
+async function guardarSeccion({ capturaGuiada: modoGuiado = false } = {}) {
+  const validacion = validarFormularioPolicias(form.value, { capturaGuiada: modoGuiado });
+  if (validacion) {
+    error.value = validacion;
+    return false;
+  }
+
   guardando.value = true;
   mensaje.value = "";
   error.value = "";
 
   try {
-    const payload = {
-      nombres: form.value.nombres,
-      primer_apellido: form.value.primer_apellido,
-      segundo_apellido: form.value.segundo_apellido,
-      grado_cargo: form.value.grado_cargo,
-      institucion: form.value.institucion,
-      institucion_otra: form.value.institucion === "otra" ? form.value.institucion_otra : "",
-      unidad_arribo: form.value.no_aplica ? "NO APLICA" : form.value.unidad_arribo,
-      es_primer_respondiente: 1,
-      id_tipo_actor: 5,
-    };
+    const resultado = await guardarPolicias(props.iphId, form.value, {
+      registros: lista.value,
+      registroId: form.value.registro_relacional_id,
+      listaCargada: listaCargada.value,
+      crearNuevo: crearNuevoRegistro.value,
+    });
+    if (resultado.registroId) form.value.registro_relacional_id = resultado.registroId;
+    if (resultado.capturaGuardada) {
+      capturaOriginal.value = datosParaCapturaPolicias(form.value);
+      datosLegacyIncompletos.value = false;
+    }
+    if (resultado.registroGuardado) {
+      const idGuardado = String(resultado.registroGuardado.id);
+      const existente = lista.value.findIndex((item) => String(item.id) === idGuardado);
+      if (existente >= 0) lista.value[existente] = resultado.registroGuardado;
+      else lista.value.push(resultado.registroGuardado);
+      listaCargada.value = true;
+      const ambiguo = registrosAmbiguos.value.findIndex((item) => String(item.id) === idGuardado);
+      if (ambiguo >= 0) registrosAmbiguos.value[ambiguo] = resultado.registroGuardado;
+      crearNuevoRegistro.value = false;
+    }
 
-    await api.post(`/iph/${props.iphId}/policias/lista`, payload);
-    const datosNoPersistidos = form.value.entidad_federativa
-      || form.value.municipio_adscripcion
-      || form.value.arribo_multiple
-      || form.value.cantidad_elementos;
-    const datosAdscritos = {
-      entidad_federativa: form.value.entidad_federativa,
-      municipio_adscripcion: form.value.municipio_adscripcion,
-      arribo_multiple: form.value.arribo_multiple,
-      cantidad_elementos: form.value.cantidad_elementos,
-    };
-    await cargar();
-    form.value = { ...crearFormulario(), ...datosAdscritos };
-    seleccionarSeccion1.value = false;
-    mensaje.value = datosNoPersistidos
-      ? "El elemento se guardó, pero entidad, municipio y cantidad de elementos aún no se almacenan en el modelo actual."
-      : "Elemento guardado correctamente.";
-    emit("guardado");
-    return true;
+    const faltaCantidad = modoGuiado
+      && form.value.arribo_multiple === "SI"
+      && (!Number.isInteger(Number(form.value.cantidad_elementos)) || Number(form.value.cantidad_elementos) < 2);
+    const completo = resultado.guardadoCompleto && !faltaCantidad;
+    if (completo) {
+      mensaje.value = resultado.mensaje;
+      emit("guardado");
+    } else if (resultado.guardadoCompleto) {
+      mensaje.value = `${resultado.mensaje} Falta indicar la cantidad de elementos en el formulario completo.`;
+    } else {
+      error.value = resultado.mensaje;
+    }
+    return completo;
   } catch (exception) {
-    error.value = exception.response?.data?.msg || "No se pudo guardar el primer respondiente.";
+    error.value = exception.response?.data?.msg || `No se pudo guardar la Sección 2: ${exception.message}`;
     return false;
   } finally {
     guardando.value = false;
   }
+}
+
+function guardarFormularioCompleto() {
+  if (!formulario.value?.reportValidity()) return;
+  return guardarSeccion();
 }
 
 async function siguiente() {
@@ -294,7 +464,7 @@ async function siguiente() {
     || form.value.institucion || form.value.grado_cargo || form.value.unidad_arribo;
   if (tieneDatos) {
     if (!formulario.value?.reportValidity()) return;
-    if (!await agregar()) return;
+    if (!await guardarSeccion()) return;
   }
   emit("siguiente");
 }
@@ -304,12 +474,73 @@ async function eliminar(id) {
   error.value = "";
   try {
     await api.delete(`/iph/${props.iphId}/policias/lista/${id}`);
-    await cargar();
-    emit("guardado");
+    lista.value = lista.value.filter((policia) => String(policia.id) !== String(id));
+    if (String(form.value.registro_relacional_id) === String(id)) {
+      form.value = crearFormularioPolicias();
+      capturaOriginal.value = null;
+      try {
+        await guardarCaptura(props.iphId, "policias", datosParaCapturaPolicias(form.value));
+        emit("guardado");
+      } catch (exception) {
+        error.value = exception.response?.data?.msg
+          || `El registro se eliminó, pero no se pudo actualizar la captura JSON: ${exception.message}`;
+      }
+    } else {
+      emit("guardado");
+    }
   } catch (exception) {
     error.value = exception.response?.data?.msg || "No se pudo eliminar el elemento.";
   }
 }
 
+function revisarAvisoResumen() {
+  capturaGuiada.value = false;
+  nextTick(() => {
+    document.getElementById("cantidad-elementos")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
 onMounted(cargar);
+watch(() => props.iphId, cargar);
 </script>
+
+<style scoped>
+.primer-respondiente-modo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.primer-respondiente-modo button {
+  min-height: 44px;
+  padding: 0.65rem 1rem;
+  border: 1px solid #6b1d3f;
+  border-radius: 8px;
+  background: #fff;
+  color: #6b1d3f;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.primer-respondiente-modo button.activa {
+  background: #6b1d3f;
+  color: #fff;
+}
+
+.primer-respondiente-captura-guiada {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.primer-respondiente-edit {
+  min-height: 36px;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #6b1d3f;
+  border-radius: 6px;
+  background: #fff;
+  color: #6b1d3f;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+</style>

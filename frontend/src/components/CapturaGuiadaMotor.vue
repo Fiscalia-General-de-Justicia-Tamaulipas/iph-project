@@ -45,10 +45,10 @@
             <dd>{{ item.valor }}</dd>
           </template>
         </dl>
-        <div class="captura-guia-aviso" role="alert">
-          <span>Falta capturar los datos de quien recibe la puesta a disposición</span>
-          <button type="button" @click="$emit('receptor')">
-            Capturar receptor
+        <div v-if="resumenAviso" class="captura-guia-aviso" role="alert">
+          <span>{{ resumenAviso }}</span>
+          <button v-if="resumenAvisoAccion" type="button" @click="$emit('receptor')">
+            {{ resumenAvisoAccion }}
           </button>
         </div>
         <p v-if="errorGuardado" class="captura-guia-error" role="alert">{{ errorGuardado }}</p>
@@ -90,6 +90,40 @@
           </button>
           <button type="button" class="captura-guia-secundario" :disabled="respuestaProcesando" @click="responderSiNo('NO')">
             No
+          </button>
+        </template>
+
+        <template v-else-if="esSeleccionCatalogo">
+          <div class="captura-guia-catalogo">
+            <label :for="`buscar-${preguntaActual.id}`">Buscar en el catálogo</label>
+            <input
+              :id="`buscar-${preguntaActual.id}`"
+              v-model="filtroCatalogo"
+              type="search"
+              autocomplete="off"
+              placeholder="Escribe para filtrar"
+            />
+            <label :for="`captura-${preguntaActual.id}`">Selecciona una opción</label>
+            <select
+              :id="`captura-${preguntaActual.id}`"
+              v-model="valorCaptura"
+              :required="Boolean(preguntaActual.obligatorio)"
+            >
+              <option value="">-- SELECCIONE --</option>
+              <option
+                v-for="opcion in opcionesCatalogoFiltradas"
+                :key="opcion.value"
+                :value="opcion.value"
+              >
+                {{ opcion.label }}
+              </option>
+            </select>
+            <span v-if="!opcionesCatalogo.length && preguntaActual.dependeDe" class="captura-guia-catalogo-ayuda">
+              No hay opciones disponibles para la selección anterior.
+            </span>
+          </div>
+          <button type="button" class="captura-guia-principal" @click="capturarTexto">
+            Continuar
           </button>
         </template>
 
@@ -148,6 +182,11 @@ const props = defineProps({
   resumenItems: { type: Array, default: () => [] },
   guardando: { type: Boolean, default: false },
   errorGuardado: { type: String, default: "" },
+  resumenAviso: {
+    type: String,
+    default: "Falta capturar los datos de quien recibe la puesta a disposición",
+  },
+  resumenAvisoAccion: { type: String, default: "Capturar receptor" },
 });
 
 const emit = defineEmits(["actualizar", "guardar", "revisar-formulario", "receptor", "accion-secundaria"]);
@@ -161,6 +200,7 @@ const respuestasPrecargadas = ref(new Set());
 const mensajes = ref([]);
 const chat = ref(null);
 const respuestaProcesando = ref(false);
+const filtroCatalogo = ref("");
 
 const preguntasActivas = computed(() => props.preguntas.filter((pregunta) =>
   pregunta.id === "resumen" ||
@@ -192,21 +232,60 @@ function textoPregunta(pregunta) {
 const textoActual = computed(() => textoPregunta(preguntaActual.value));
 const respuestaPrecargadaActual = computed(() => {
   const pregunta = preguntaActual.value;
-  if (!pregunta || !respuestasPrecargadas.value.has(pregunta.id)) return "";
-  return respuestas.value[pregunta.id] === "SI" ? "Sí" : "No";
+  if (!pregunta) return "";
+  const respuestaInicial = obtenerRespuestaInicial(pregunta);
+  const valor = respuestasPrecargadas.value.has(pregunta.id)
+    ? respuestas.value[pregunta.id]
+    : respuestaInicial || (pregunta.campoFormulario ? obtenerValor(pregunta.campoFormulario) : "");
+  if (valor === "SI") return "Sí";
+  if (valor === "NO") return "No";
+  if (valor == null || valor === "") return "";
+  if (esSeleccionCatalogo.value) {
+    const opciones = typeof pregunta.opciones === "function"
+      ? pregunta.opciones(props.datos, respuestas.value, props.contexto)
+      : pregunta.opciones;
+    const opcion = (opciones || []).find((item) =>
+      String(typeof item === "string" ? item : item.value) === String(valor),
+    );
+    if (opcion) return typeof opcion === "string" ? opcion : opcion.label;
+  }
+  return String(valor) === "NO APLICA" ? "No aplica" : String(valor);
 });
 
 const esSugerencia = computed(() => {
   if (!preguntaActual.value) return false;
-  return typeof preguntaActual.value.sugerencia === "function";
+  if (typeof preguntaActual.value.sugerencia !== "function") return false;
+  return Boolean(preguntaActual.value.sugerencia(props.datos, respuestas.value, props.contexto));
 });
 
+const esSeleccionCatalogo = computed(() =>
+  ["seleccion_busqueda", "seleccion_dependiente"].includes(preguntaActual.value?.tipo),
+);
+const opcionesCatalogo = computed(() => {
+  const pregunta = preguntaActual.value;
+  if (!pregunta || !esSeleccionCatalogo.value) return [];
+  const opciones = typeof pregunta.opciones === "function"
+    ? pregunta.opciones(props.datos, respuestas.value, props.contexto)
+    : pregunta.opciones;
+  return (opciones || []).map((opcion) => typeof opcion === "string"
+    ? { value: opcion, label: opcion }
+    : opcion);
+});
+const opcionesCatalogoFiltradas = computed(() => {
+  const filtro = normalizarTexto(filtroCatalogo.value);
+  if (!filtro) return opcionesCatalogo.value;
+  return opcionesCatalogo.value.filter((opcion) =>
+    normalizarTexto(opcion.label).includes(filtro),
+  );
+});
 const tipoEntrada = computed(() => {
   if (preguntaActual.value?.tipo === "fecha") return "date";
   if (preguntaActual.value?.tipo === "hora") return "time";
   return "text";
 });
-const longitudMaxima = computed(() => preguntaActual.value?.tipo === "texto" ? 150 : undefined);
+const longitudMaxima = computed(() =>
+  preguntaActual.value?.maxlength || (preguntaActual.value?.tipo === "texto" ? 150 : undefined),
+);
 const etiquetaCampo = computed(() => {
   const etiquetas = {
     fecha: "Fecha",
@@ -222,6 +301,17 @@ function obtenerValor(ruta) {
 
 function establecerValor(ruta, valor) {
   emit("actualizar", { ruta, valor });
+}
+
+function normalizarTexto(valor) {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase();
+}
+
+function etiquetaOpcion(valor) {
+  return opcionesCatalogo.value.find((opcion) => opcion.value === valor)?.label || valor;
 }
 
 function desplazarAlFinal() {
@@ -306,7 +396,12 @@ async function responderSiNo(valor) {
     respuestasPrecargadas.value.delete(pregunta.id);
     respuestas.value[pregunta.id] = valor;
 
-    if (pregunta.id === "numero_expediente") {
+    if (typeof pregunta.alResponder === "function") {
+      const cambios = await pregunta.alResponder(valor, props.datos, respuestas.value, props.contexto);
+      for (const [ruta, nuevoValor] of Object.entries(cambios || {})) {
+        establecerValor(ruta, nuevoValor);
+      }
+    } else if (pregunta.id === "numero_expediente") {
       if (valor === "NO") establecerValor("no_expediente", "");
     } else if (pregunta.id === "responsable_sesion") {
       if (valor === "SI") {
@@ -342,6 +437,9 @@ async function ejecutarAccionSecundaria() {
       !(await accion.confirmar(props.datos, respuestas.value, props.contexto))
     ) return;
 
+    for (const [ruta, valor] of Object.entries(accion.actualizar || {})) {
+      establecerValor(ruta, valor);
+    }
     emit("accion-secundaria", accion);
     registrarMensaje(accion.respuesta || accion.etiqueta);
     const indiceDestino = preguntasActivas.value.findIndex((pregunta) => pregunta.id === accion.destino);
@@ -367,9 +465,19 @@ function capturarTexto() {
     errorValidacion.value = "Este dato es obligatorio.";
     return;
   }
-  if (pregunta.campoFormulario) establecerValor(pregunta.campoFormulario, valor);
+  if (pregunta.campoFormulario) {
+    const valorAnterior = obtenerValor(pregunta.campoFormulario);
+    establecerValor(pregunta.campoFormulario, valor);
+    if (valorAnterior !== valor) {
+      for (const ruta of pregunta.limpiarCampos || []) establecerValor(ruta, "");
+      for (const id of pregunta.limpiarPreguntasDependientes || []) {
+        delete respuestas.value[id];
+        respuestasPrecargadas.value.delete(id);
+      }
+    }
+  }
   respuestas.value[pregunta.id] = valor;
-  registrarMensaje(valor || "Sin dato");
+  registrarMensaje((esSeleccionCatalogo.value ? etiquetaOpcion(valor) : valor) || "Sin dato");
   avanzar();
 }
 
@@ -402,6 +510,7 @@ function atras() {
 watch(preguntaActual, (actual) => {
   modoManual.value = false;
   valorCaptura.value = actual?.campoFormulario ? obtenerValor(actual.campoFormulario) || "" : "";
+  filtroCatalogo.value = "";
   errorValidacion.value = "";
   desplazarAlFinal();
 });
@@ -578,6 +687,33 @@ onMounted(() => {
   background: #fff;
   color: #292929;
   font-size: 0.85rem;
+}
+
+.captura-guia-catalogo {
+  display: grid;
+  width: 100%;
+  gap: 0.35rem;
+  color: #555;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.captura-guia-catalogo input,
+.captura-guia-catalogo select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #bbb;
+  border-radius: 8px;
+  background: #fff;
+  color: #292929;
+  font-size: 0.85rem;
+}
+
+.captura-guia-catalogo-ayuda {
+  color: #777;
+  font-size: 0.72rem;
+  font-weight: 400;
 }
 
 .captura-guia-error {
