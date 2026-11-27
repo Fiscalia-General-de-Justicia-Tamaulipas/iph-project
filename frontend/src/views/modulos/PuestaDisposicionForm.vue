@@ -20,20 +20,35 @@
     </nav>
 
     <CapturaGuiadaPuestaDisposicion
-      v-if="modoCaptura === 'guiada'"
+      v-if="modoCaptura === 'guiada' && !cargandoAnexos && !cargandoPolicias"
       :iph-id="iphId"
       :iph="iph"
       :form="form"
+      :form-policias="formPolicias"
+      :contexto-policias="contextoPolicias"
+      :guardar-completo="guardarCapturaGuiadaCompleta"
       :iniciar-en-anexos="iniciarEnAnexos"
       :respuestas-anexos="respuestasAnexos"
       :confirmar-cambio-anexo="confirmarCambioAnexo"
-      :error-guardado-externo="errorGuardado"
-      @guardar="guardar"
+      :error-guardado-externo="errorCapturaTotal"
       @actualizar-anexo="actualizarAnexoGuiado"
+      @actualizar-policia="actualizarCampoPolicia"
       @ningun-anexo="marcarSinAnexos"
       @revisar-formulario="cambiarFormularioCompleto"
+      @revisar-seccion2="revisarSeccion2EnFormularioCompleto"
       @receptor="capturarReceptor"
     />
+    <p
+      v-if="modoCaptura === 'guiada' && (cargandoAnexos || cargandoPolicias)"
+      class="disposicion-success"
+      role="status"
+    >
+      Cargando las respuestas guardadas...
+    </p>
+    <p v-if="mensajePolicias" class="disposicion-success" role="status">{{ mensajePolicias }}</p>
+    <p v-if="errorPolicias && modoCaptura === 'completa'" class="disposicion-error" role="alert">
+      {{ errorPolicias }}
+    </p>
 
   <form v-if="modoCaptura === 'completa'" ref="formulario" class="disposicion-form" @submit.prevent="guardar">
     <section class="disposicion-block" aria-labelledby="anexos-titulo">
@@ -269,8 +284,21 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import api from "../../store/api";
 import { leerCaptura, guardarCaptura } from "../../store/capturas";
+import { useAuthStore } from "../../store/auth";
 import { eliminarAdjunto, guardarAdjunto, listarAdjuntos, obtenerAdjunto } from "../../store/attachments";
 import { anexos } from "./capturaGuiada/anexos.js";
+import {
+  cargarPolicias,
+  combinarRegistroConCaptura,
+  crearFormularioPolicias,
+  datosParaCapturaPolicias,
+  entidadDesdeAdscripcion,
+  formularioDesdeRegistro,
+  guardarPolicias,
+  municipioDesdeAdscripcion,
+  opcionesRegistrosPolicias,
+  validarFormularioPolicias,
+} from "./capturaGuiada/PoliciasPersistencia";
 import AnexosPantalla from "./AnexosPantalla.vue";
 import CapturaGuiadaPuestaDisposicion from "./CapturaGuiadaPuestaDisposicion.vue";
 
@@ -278,7 +306,8 @@ const props = defineProps({
   iphId: { type: [String, Number], required: true },
   iph: { type: Object, default: null },
 });
-const emit = defineEmits(["guardado", "siguiente", "anexos-actualizados"]);
+const emit = defineEmits(["guardado", "siguiente", "anexos-actualizados", "revisar-seccion2", "seccion2-guardado"]);
+const auth = useAuthStore();
 const modoCaptura = ref("guiada");
 const iniciarEnAnexos = ref(false);
 const PANTALLA_LEGACY_ANEXOS_HABILITADA = false;
@@ -326,7 +355,16 @@ const archivos = ref([]);
 const avancesGuardados = ref(false);
 const errorArchivo = ref("");
 const errorGuardado = ref("");
+const errorPolicias = ref("");
 const mensaje = ref("");
+const mensajePolicias = ref("");
+const cargandoPolicias = ref(true);
+const guardandoPolicias = ref(false);
+const listaPolicias = ref([]);
+const listaPoliciasCargada = ref(false);
+const capturaPoliciasOriginal = ref(null);
+const registrosPoliciasAmbiguos = ref([]);
+const datosLegacyPoliciasIncompletos = ref(false);
 
 function crearBorrador() {
   return {
@@ -359,7 +397,140 @@ function crearBorrador() {
 }
 
 const form = ref(crearBorrador());
+const formPolicias = ref(crearFormularioPolicias());
 const claveBorrador = () => `iph-pruebas:${props.iphId}:puesta_disposicion`;
+const adscripcionSesion = computed(() =>
+  String(auth.usuario?.UNDD_DSCRPCION || auth.usuario?.adscripcion || "").trim(),
+);
+const entidadSesion = computed(() => entidadDesdeAdscripcion(adscripcionSesion.value));
+const municipioSesion = computed(() =>
+  municipioDesdeAdscripcion(adscripcionSesion.value, entidadSesion.value),
+);
+const cargoSesion = computed(() =>
+  String(auth.usuario?.PUESTO || auth.usuario?.puesto || auth.usuario?.cargo || "").trim(),
+);
+const contextoPolicias = computed(() => ({
+  leerResponsableSeccion1: async () => form.value.responsable,
+  registrosAmbiguos: opcionesRegistrosPolicias(registrosPoliciasAmbiguos.value),
+  datosLegacyIncompletos: datosLegacyPoliciasIncompletos.value,
+  entidadSesion: entidadSesion.value,
+  municipioSesion: municipioSesion.value,
+  cargoSesion: cargoSesion.value,
+}));
+const errorCapturaTotal = computed(() =>
+  [errorGuardado.value, errorPolicias.value].filter(Boolean).join(" "),
+);
+
+async function cargarDatosPolicias() {
+  cargandoPolicias.value = true;
+  errorPolicias.value = "";
+  try {
+    const resultado = await cargarPolicias(props.iphId);
+    formPolicias.value = resultado.formulario;
+    capturaPoliciasOriginal.value = resultado.capturaOriginal;
+    listaPolicias.value = resultado.registros;
+    listaPoliciasCargada.value = resultado.listaCargada;
+    registrosPoliciasAmbiguos.value = resultado.registrosAmbiguos;
+    datosLegacyPoliciasIncompletos.value = resultado.datosLegacyIncompletos;
+    if (resultado.errorCarga) errorPolicias.value = resultado.errorCarga;
+  } catch (error) {
+    listaPoliciasCargada.value = false;
+    errorPolicias.value = error.response?.data?.msg
+      || `No se pudo cargar la Sección 2: ${error.message}`;
+  } finally {
+    cargandoPolicias.value = false;
+  }
+}
+
+function seleccionarRegistroPolicia(registro) {
+  formPolicias.value = capturaPoliciasOriginal.value
+    ? combinarRegistroConCaptura(registro, capturaPoliciasOriginal.value, { priorizarRegistro: true })
+    : formularioDesdeRegistro(registro);
+  formPolicias.value.registro_relacional_id = String(registro.id);
+  errorPolicias.value = "";
+}
+
+function actualizarCampoPolicia({ ruta, valor }) {
+  if (ruta === "registro_relacional_id") {
+    if (String(formPolicias.value.registro_relacional_id) === String(valor)) return;
+    const registro = listaPolicias.value.find((item) => String(item.id) === String(valor));
+    if (registro) seleccionarRegistroPolicia(registro);
+    return;
+  }
+  formPolicias.value[ruta] = valor;
+  if (ruta === "unidad_arribo") formPolicias.value.no_aplica = valor === "NO APLICA";
+  if (ruta === "institucion" && valor !== "otra") formPolicias.value.institucion_otra = "";
+  if (ruta === "entidad_federativa" && valor !== "TAMAULIPAS") {
+    formPolicias.value.municipio_adscripcion = "";
+  }
+}
+
+async function guardarSeccion2() {
+  const validacion = validarFormularioPolicias(formPolicias.value, { capturaGuiada: true });
+  if (validacion) {
+    errorPolicias.value = validacion;
+    return false;
+  }
+
+  guardandoPolicias.value = true;
+  errorPolicias.value = "";
+  mensajePolicias.value = "";
+  try {
+    const resultado = await guardarPolicias(props.iphId, formPolicias.value, {
+      registros: listaPolicias.value,
+      registroId: formPolicias.value.registro_relacional_id,
+      listaCargada: listaPoliciasCargada.value,
+    });
+    if (resultado.registroId) formPolicias.value.registro_relacional_id = resultado.registroId;
+    if (resultado.capturaGuardada) {
+      capturaPoliciasOriginal.value = datosParaCapturaPolicias(formPolicias.value);
+      datosLegacyPoliciasIncompletos.value = false;
+    }
+    if (resultado.registroGuardado) {
+      const idGuardado = String(resultado.registroGuardado.id);
+      const indice = listaPolicias.value.findIndex((item) => String(item.id) === idGuardado);
+      if (indice < 0) listaPolicias.value.push(resultado.registroGuardado);
+      else listaPolicias.value[indice] = resultado.registroGuardado;
+      listaPoliciasCargada.value = true;
+      const ambiguo = registrosPoliciasAmbiguos.value.findIndex((item) => String(item.id) === idGuardado);
+      if (ambiguo >= 0) registrosPoliciasAmbiguos.value[ambiguo] = resultado.registroGuardado;
+    }
+
+    if (!resultado.guardadoCompleto) {
+      errorPolicias.value = resultado.mensaje;
+      return false;
+    }
+
+    const faltaCantidad = formPolicias.value.arribo_multiple === "SI"
+      && (!Number.isInteger(Number(formPolicias.value.cantidad_elementos))
+        || Number(formPolicias.value.cantidad_elementos) < 2
+        || Number(formPolicias.value.cantidad_elementos) > 999);
+    mensajePolicias.value = faltaCantidad
+      ? `${resultado.mensaje} Falta indicar la cantidad de elementos en el formulario completo.`
+      : resultado.mensaje;
+    if (faltaCantidad) return false;
+
+    emit("seccion2-guardado");
+    return true;
+  } catch (error) {
+    errorPolicias.value = error.response?.data?.msg
+      || `No se pudo guardar la Sección 2: ${error.message}`;
+    return false;
+  } finally {
+    guardandoPolicias.value = false;
+  }
+}
+
+async function guardarCapturaGuiadaCompleta() {
+  errorPolicias.value = "";
+  mensajePolicias.value = "";
+  if (!await guardar()) return false;
+  return guardarSeccion2();
+}
+
+function revisarSeccion2EnFormularioCompleto() {
+  emit("revisar-seccion2");
+}
 
 function notificarAnexos() {
   const entregados = Object.fromEntries(
@@ -529,6 +700,7 @@ async function cargarBorrador() {
     avancesGuardados.value = false;
     errorGuardado.value = error.response?.data?.msg || `No se pudo cargar la captura del servidor: ${error.message}`;
   }
+  await cargarDatosPolicias();
   try { archivos.value = await listarAdjuntos(props.iphId, "puesta_disposicion"); }
   catch (error) { errorArchivo.value = error.response?.data?.msg || "No se pudieron cargar los archivos del servidor."; }
   cargandoAnexos.value = false;

@@ -152,6 +152,8 @@
               @cancelar="irAlPanel"
               @siguiente="marcarYAvanzar"
               @anexos-actualizados="actualizarAnexosVisibles"
+              @revisar-seccion2="navegarModulo('policias')"
+              @seccion2-guardado="marcarPoliciasCompletado"
             />
             <p v-else class="iph-empty-state">Selecciona un formulario para continuar.</p>
           </div>
@@ -459,6 +461,12 @@ function marcarModuloCompletado() {
   programarVistaPrevia();
 }
 
+function marcarPoliciasCompletado() {
+  modulosCompletados.value = new Set(modulosCompletados.value).add("policias");
+  recargarEstado();
+  programarVistaPrevia();
+}
+
 function marcarYAvanzar() {
   if (moduloActivo.value) {
     modulosCompletados.value = new Set(modulosCompletados.value).add(moduloActivo.value);
@@ -490,6 +498,12 @@ function cerrarSesion() {
 function leerCamposActuales() {
   const contenedor = document.querySelector(".iph-section-content");
   if (!contenedor || !moduloActivo.value) return;
+  if (contenedor.querySelector(".captura-guia")) {
+    const camposGuardados = { ...camposPorModulo.value };
+    delete camposGuardados[moduloActivo.value];
+    camposPorModulo.value = camposGuardados;
+    return;
+  }
   const controles = Array.from(contenedor.querySelectorAll("input, select, textarea"))
     .filter((control) => !["button", "submit", "reset", "hidden", "file"].includes(control.type));
   camposPorModulo.value = {
